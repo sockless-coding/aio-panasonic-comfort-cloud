@@ -3,3 +3,4 @@ urllib3
 bs4
 aiofiles
 aiohttp
+packaging
