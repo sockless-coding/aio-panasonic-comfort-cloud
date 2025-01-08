@@ -11,7 +11,7 @@ dependencies = [
   "bs4",
   "aiofiles"
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
   {name = "Jimmy Everling", email = "jimmy@sockless.tech"},
 ]
@@ -23,12 +23,10 @@ readme = "README.md"
 license = {file = "LICENSE"}
 keywords = ["panasonic", "comfort cloud"]
 classifiers = [
-  "Programming Language :: Python",
-  "License :: MIT License",
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
 ]
-
-
 
 [project.urls]
 Homepage = "https://github.com/sockless-coding/aio-panasonic-comfort-cloud"
