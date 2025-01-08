@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aio-panasonic-comfort-cloud"
+version = "2025.1.0"
+dependencies = [
+  "aiohttp",
+  "urllib3",
+  "bs4",
+  "aiofiles"
+]
+requires-python = ">=3.9"
+authors = [
+  {name = "Jimmy Everling", email = "jimmy@sockless.tech"},
+]
+maintainers = [
+  {name = "Jimmy Everling", email = "jimmy@sockless.tech"},
+]
+description = "Asynchronous Python library for Panasonic Comfort Cloud API"
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = ["panasonic", "comfort cloud"]
+classifiers = [
+  "Programming Language :: Python",
+  "License :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+
+
+[project.urls]
+Homepage = "https://github.com/sockless-coding/aio-panasonic-comfort-cloud"
+Repository = "https://github.com/sockless-coding/aio-panasonic-comfort-cloud.git"
+"Bug Tracker" = "https://github.com/sockless-coding/aio-panasonic-comfort-cloud/issues"
