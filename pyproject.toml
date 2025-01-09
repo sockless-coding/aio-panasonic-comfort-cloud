@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "aio-panasonic-comfort-cloud"
@@ -14,9 +14,6 @@ dependencies = [
 ]
 requires-python = ">=3.10"
 authors = [
-  {name = "Jimmy Everling", email = "jimmy@sockless.tech"},
-]
-maintainers = [
   {name = "Jimmy Everling", email = "jimmy@sockless.tech"},
 ]
 description = "Asynchronous Python library for Panasonic Comfort Cloud API"
