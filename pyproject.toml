@@ -2,6 +2,10 @@
 requires = ["setuptools>=64", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
+
 [project]
 name = "aio-panasonic-comfort-cloud"
 dynamic = ["version"]
