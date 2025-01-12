@@ -23,6 +23,7 @@ class ChangeRequestBuilder:
     def set_eco_mode(self, new_value: str | constants.EcoMode):
         """ Set eco mode """
         if isinstance(new_value, str):
+            new_value = new_value.upper()
             new_value = constants.EcoMode[new_value]
         self._ensure_powered_on()
         self._request["ecoMode"] = new_value.value
@@ -65,23 +66,23 @@ class ChangeRequestBuilder:
     def horizontal_swing(self) -> constants.AirSwingLR | None:
         if "airSwingLR" not in self._request:
             return None
-        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingLR.value):
-            return constants.AirSwingLR.Auto
+        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.BOTH.value, constants.AirSwingAutoMode.SWING_LEFT_RIGHT.value):
+            return constants.AirSwingLR.AUTO
         return constants.AirSwingAutoMode(self._request["airSwingLR"])
     
     def set_horizontal_swing(self, new_value: str | constants.AirSwingLR):
         """ Set horizontal swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingLR[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingLR 
-                    if new_value == constants.AirSwingLR.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if self._device.parameters.vertical_swing_mode == constants.AirSwingUD.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingLR.Auto 
-                        else constants.AirSwingAutoMode.AirSwingUD)
+        fan_auto = (constants.AirSwingAutoMode.SWING_LEFT_RIGHT 
+                    if new_value == constants.AirSwingLR.AUTO 
+                    else constants.AirSwingAutoMode.DISABLED)
+        if self._device.parameters.vertical_swing_mode == constants.AirSwingUD.AUTO:
+            fan_auto = (constants.AirSwingAutoMode.BOTH 
+                        if new_value == constants.AirSwingLR.AUTO 
+                        else constants.AirSwingAutoMode.SWING_UP_DOWN)
         self._ensure_powered_on()
-        if new_value != constants.AirSwingLR.Auto:
+        if new_value != constants.AirSwingLR.AUTO:
             self._request["airSwingLR"] = new_value.value
         self._request["fanAutoMode"] = fan_auto.value
         return self
@@ -90,23 +91,23 @@ class ChangeRequestBuilder:
     def vertical_swing(self) -> constants.AirSwingUD | None:
         if "airSwingUD" not in self._request:
             return None
-        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingUD.value):
-            return constants.AirSwingUD.Auto
+        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.BOTH.value, constants.AirSwingAutoMode.SWING_UP_DOWN.value):
+            return constants.AirSwingUD.AUTO
         return constants.AirSwingUD(self._request["airSwingUD"])
     
     def set_vertical_swing(self, new_value: str | constants.AirSwingUD):
         """ Set vertical swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingUD[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingUD 
-                    if new_value == constants.AirSwingUD.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if self._device.parameters.horizontal_swing_mode == constants.AirSwingLR.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingUD.Auto 
-                        else constants.AirSwingAutoMode.AirSwingLR)
+        fan_auto = (constants.AirSwingAutoMode.SWING_UP_DOWN 
+                    if new_value == constants.AirSwingUD.AUTO 
+                    else constants.AirSwingAutoMode.DISABLED)
+        if self._device.parameters.horizontal_swing_mode == constants.AirSwingLR.AUTO:
+            fan_auto = (constants.AirSwingAutoMode.BOTH 
+                        if new_value == constants.AirSwingUD.AUTO 
+                        else constants.AirSwingAutoMode.SWING_LEFT_RIGHT)
         self._ensure_powered_on()
-        if new_value != constants.AirSwingUD.Auto:
+        if new_value != constants.AirSwingUD.AUTO:
             self._request["airSwingUD"] = new_value.value
         self._request["fanAutoMode"] = fan_auto.value
         return self
@@ -163,7 +164,7 @@ class ChangeRequestBuilder:
         """ Set IAutoX mode"""
         if isinstance(new_value, str):
             new_value = constants.IAutoXMode[new_value]
-        self.set_hvac_mode(constants.OperationMode.Auto if new_value == constants.IAutoXMode.On else constants.OperationMode.Cool)
+        self.set_hvac_mode(constants.OperationMode.AUTO if new_value == constants.IAutoXMode.ON else constants.OperationMode.COOL)
         self._request["iauto"] = new_value.value
         return self
     
@@ -196,9 +197,9 @@ class ChangeRequestBuilder:
     
     def _ensure_powered_on(self) -> None:
         """ Ensure that the device is powered on"""
-        if self._device.parameters.power == constants.Power.On:
+        if self._device.parameters.power == constants.Power.ON:
             return
-        self._request["operate"] = constants.Power.On.value
+        self._request["operate"] = constants.Power.ON.value
         
 
     

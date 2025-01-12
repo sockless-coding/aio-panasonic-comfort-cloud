@@ -107,15 +107,15 @@ class PanasonicDevice:
 
     @property
     def has_eco_navi(self):
-        return self._features.eco_navi and self._parameters.eco_navi_mode != constants.EcoNaviMode.Unavailable
+        return self._features.eco_navi and self._parameters.eco_navi_mode != constants.EcoNaviMode.UNAVAILABLE
     
     @property
     def has_eco_function(self):
-        return self._features.eco_function > 0 and self._parameters.eco_function_mode != constants.EcoFunctionMode.Unavailable
+        return self._features.eco_function > 0 and self._parameters.eco_function_mode != constants.EcoFunctionMode.UNAVAILABLE
     
     @property
     def has_nanoe(self):
-        return self._features.nanoe and self._parameters.nanoe_mode!= constants.NanoeMode.Unavailable
+        return self._features.nanoe and self._parameters.nanoe_mode!= constants.NanoeMode.UNAVAILABLE
     
     @property
     def has_zones(self):
@@ -123,7 +123,7 @@ class PanasonicDevice:
     
     @property
     def has_horizontal_swing(self):
-        return self._features.air_swing_lr and self._parameters.horizontal_swing_mode != constants.AirSwingLR.Unavailable
+        return self._features.air_swing_lr and self._parameters.horizontal_swing_mode != constants.AirSwingLR.UNAVAILABLE
     
     @property
     def has_inside_temperature(self):
@@ -135,7 +135,7 @@ class PanasonicDevice:
     
     @property
     def has_iauto_x(self):
-        return self.features.iauto_x_mode and self._parameters.iautox_mode!= constants.IAutoXMode.Unavailable
+        return self.features.iauto_x_mode and self._parameters.iautox_mode!= constants.IAutoXMode.UNAVAILABLE
     
     @property
     def in_summer_house_mode(self):        
@@ -399,19 +399,19 @@ class PanasonicDeviceFeatures:
         
 class PanasonicDeviceParameters:
     def __init__(self, json = None) -> None:
-        self._power = constants.Power.Off
-        self._mode = constants.OperationMode.Auto
-        self._fan_speed = constants.FanSpeed.Auto
-        self._horizontal_swing_mode = constants.AirSwingLR.Mid
-        self._vertical_swing_mode = constants.AirSwingUD.Mid
-        self._eco_mode = constants.EcoMode.Auto
-        self._nanoe_mode = constants.NanoeMode.Unavailable
-        self._eco_navi_mode = constants.EcoNaviMode.Unavailable
-        self._eco_function_mode = constants.EcoFunctionMode.Unavailable
+        self._power = constants.Power.OFF
+        self._mode = constants.OperationMode.AUTO
+        self._fan_speed = constants.FanSpeed.AUTO
+        self._horizontal_swing_mode = constants.AirSwingLR.CENTER
+        self._vertical_swing_mode = constants.AirSwingUD.MIDDLE
+        self._eco_mode = constants.EcoMode.AUTO
+        self._nanoe_mode = constants.NanoeMode.UNAVAILABLE
+        self._eco_navi_mode = constants.EcoNaviMode.UNAVAILABLE
+        self._eco_function_mode = constants.EcoFunctionMode.UNAVAILABLE
         self._target_temperature: float = None
         self._inside_temperature: float = None
         self._outside_temperature: float = None
-        self._iauto_x_mode = constants.IAutoXMode.Unavailable
+        self._iauto_x_mode = constants.IAutoXMode.UNAVAILABLE
         self._zones: list[PanasonicDeviceZone] = []
         self._zone_index: dict[int, PanasonicDeviceZone] = {}
         self._has_changed = False
@@ -623,13 +623,13 @@ class PanasonicDeviceParameters:
             except:
                 _LOGGER.warning("Invalid vertical swing mode '%s'", json['airSwingUD'])
         if 'fanAutoMode' in json:
-            if json['fanAutoMode'] == constants.AirSwingAutoMode.Both.value:
-                self.horizontal_swing_mode = constants.AirSwingLR.Auto
-                self.vertical_swing_mode = constants.AirSwingUD.Auto
-            elif json['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingLR.value:
-                self.horizontal_swing_mode = constants.AirSwingLR.Auto
-            elif json['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingUD.value:
-                self.vertical_swing_mode = constants.AirSwingUD.Auto
+            if json['fanAutoMode'] == constants.AirSwingAutoMode.BOTH.value:
+                self.horizontal_swing_mode = constants.AirSwingLR.AUTO
+                self.vertical_swing_mode = constants.AirSwingUD.AUTO
+            elif json['fanAutoMode'] == constants.AirSwingAutoMode.SWING_LEFT_RIGHT.value:
+                self.horizontal_swing_mode = constants.AirSwingLR.AUTO
+            elif json['fanAutoMode'] == constants.AirSwingAutoMode.SWING_UP_DOWN.value:
+                self.vertical_swing_mode = constants.AirSwingUD.AUTO
 
         
 
@@ -640,7 +640,7 @@ class PanasonicDeviceZone:
 
         self._id:int = json['zoneId']
         self._name:str = None
-        self._mode = constants.ZoneMode.Off
+        self._mode = constants.ZoneMode.OFF
         self._level = 100
         self._spill = 0
         self._temperature: int = None

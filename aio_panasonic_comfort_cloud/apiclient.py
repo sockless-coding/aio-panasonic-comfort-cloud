@@ -219,7 +219,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
 
         payload = {
             "deviceGuid": device_guid,
-            "dataMode": constants.DataMode.Month.value,
+            "dataMode": constants.DataMode.MONTH.value,
             "date": today,
             "osTimezone": get_current_time_zone()
         }
@@ -246,18 +246,18 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         """ Set horizontal swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingLR[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingLR 
-                    if new_value == constants.AirSwingLR.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if device.parameters.vertical_swing_mode == constants.AirSwingUD.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingLR.Auto 
-                        else constants.AirSwingAutoMode.AirSwingUD)
+        fan_auto = (constants.AirSwingAutoMode.SWING_LEFT_RIGHT 
+                    if new_value == constants.AirSwingLR.AUTO 
+                    else constants.AirSwingAutoMode.DISABLED)
+        if device.parameters.vertical_swing_mode == constants.AirSwingUD.AUTO:
+            fan_auto = (constants.AirSwingAutoMode.BOTH 
+                        if new_value == constants.AirSwingLR.AUTO 
+                        else constants.AirSwingAutoMode.SWING_UP_DOWN)
 
         await self.set_device_raw(
             device,
             { 
-                "operate": constants.Power.On,
+                "operate": constants.Power.ON,
                 "airSwingLR": new_value.value,
                 "fanAutoMode": fan_auto.value
             })
@@ -266,18 +266,18 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         """ Set vertical swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingUD[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingUD 
-                    if new_value == constants.AirSwingUD.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if device.parameters.horizontal_swing_mode == constants.AirSwingLR.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingUD.Auto 
-                        else constants.AirSwingAutoMode.AirSwingLR)
+        fan_auto = (constants.AirSwingAutoMode.SWING_UP_DOWN 
+                    if new_value == constants.AirSwingUD.AUTO 
+                    else constants.AirSwingAutoMode.DISABLED)
+        if device.parameters.horizontal_swing_mode == constants.AirSwingLR.AUTO:
+            fan_auto = (constants.AirSwingAutoMode.BOTH 
+                        if new_value == constants.AirSwingUD.AUTO 
+                        else constants.AirSwingAutoMode.SWING_LEFT_RIGHT)
 
         await self.set_device_raw(
             device,
             { 
-                "operate": constants.Power.On,
+                "operate": constants.Power.ON,
                 "airSwingUD": new_value.value,
                 "fanAutoMode": fan_auto.value
             })
@@ -359,7 +359,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
 
                 if key == 'nanoe' and \
                         isinstance(value, constants.NanoeMode) and \
-                        value != constants.NanoeMode.Unavailable:
+                        value != constants.NanoeMode.UNAVAILABLE:
                     parameters['nanoe'] = value.value
 
                 if key == 'ecoNavi' and isinstance(value, constants.EcoNaviMode):
@@ -376,10 +376,10 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
             fan_auto = 0
             device = await self.get_device(device_info)
 
-            if device and device.parameters.horizontal_swing_mode == constants.AirSwingLR.Auto:
+            if device and device.parameters.horizontal_swing_mode == constants.AirSwingLR.AUTO:
                 fan_auto = fan_auto | 1
 
-            if device and device.parameters.vertical_swing_mode == constants.AirSwingUD.Auto:
+            if device and device.parameters.vertical_swing_mode == constants.AirSwingUD.AUTO:
                 fan_auto = fan_auto | 2
 
             if air_x is not None:
@@ -398,13 +398,13 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
                     parameters['airSwingUD'] = air_y.value
 
             if fan_auto == 3:
-                parameters['fanAutoMode'] = constants.AirSwingAutoMode.Both.value
+                parameters['fanAutoMode'] = constants.AirSwingAutoMode.BOTH.value
             elif fan_auto == 1:
-                parameters['fanAutoMode'] = constants.AirSwingAutoMode.AirSwingLR.value
+                parameters['fanAutoMode'] = constants.AirSwingAutoMode.SWING_LEFT_RIGHT.value
             elif fan_auto == 2:
-                parameters['fanAutoMode'] = constants.AirSwingAutoMode.AirSwingUD.value
+                parameters['fanAutoMode'] = constants.AirSwingAutoMode.SWING_UP_DOWN.value
             else:
-                parameters['fanAutoMode'] = constants.AirSwingAutoMode.Disabled.value
+                parameters['fanAutoMode'] = constants.AirSwingAutoMode.DISABLED.value
 
         device_guid = device_info.guid
         if device_guid:
@@ -457,13 +457,13 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
             value['nanoe'] = constants.NanoeMode(parameters['nanoe'])
 
         if 'fanAutoMode' in parameters:
-            if parameters['fanAutoMode'] == constants.AirSwingAutoMode.Both.value:
-                value['airSwingHorizontal'] = constants.AirSwingLR.Auto
-                value['airSwingVertical'] = constants.AirSwingUD.Auto
-            elif parameters['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingLR.value:
-                value['airSwingHorizontal'] = constants.AirSwingLR.Auto
-            elif parameters['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingUD.value:
-                value['airSwingVertical'] = constants.AirSwingUD.Auto
+            if parameters['fanAutoMode'] == constants.AirSwingAutoMode.BOTH.value:
+                value['airSwingHorizontal'] = constants.AirSwingLR.AUTO
+                value['airSwingVertical'] = constants.AirSwingUD.AUTO
+            elif parameters['fanAutoMode'] == constants.AirSwingAutoMode.SWING_LEFT_RIGHT.value:
+                value['airSwingHorizontal'] = constants.AirSwingLR.AUTO
+            elif parameters['fanAutoMode'] == constants.AirSwingAutoMode.SWING_UP_DOWN.value:
+                value['airSwingVertical'] = constants.AirSwingUD.AUTO
 
         return value
 

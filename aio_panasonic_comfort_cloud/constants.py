@@ -3,92 +3,92 @@ from enum import Enum
 
 
 class Power(Enum):
-    Off = 0
-    On = 1
+    OFF = 0
+    ON = 1
 
 
 class OperationMode(Enum):
-    Auto = 0
-    Dry = 1
-    Cool = 2
-    Heat = 3
-    Fan = 4
+    AUTO = 0
+    DRY = 1
+    COOL = 2
+    HEAT = 3
+    FAN = 4
 
 
 class AirSwingUD(Enum):
-    Auto = -1
-    Up = 0
-    UpMid = 3
-    Mid = 2
-    DownMid = 4
-    Down = 1
-    Swing = 5
+    AUTO = -1
+    TOP = 0
+    MIDDLE_TOP = 3
+    MIDDLE = 2
+    MIDDLE_DOWN = 4
+    DOWN = 1
+    SWING = 5
 
 
 class AirSwingLR(Enum):
-    Auto = -1
-    Left = 1
-    LeftMid = 5
-    Mid = 2
-    RightMid = 4
-    Right = 0
-    Unavailable = 6
+    AUTO = -1
+    LEFT = 1
+    CENTER_LEFT = 5
+    CENTER = 2
+    CENTER_RIGHT = 4
+    RIGHT = 0
+    UNAVAILABLE = 6
 
 
 class EcoMode(Enum):
-    Auto = 0
-    Powerful = 1
-    Quiet = 2
+    AUTO = 0
+    POWERFUL = 1
+    QUIET = 2
 
 
 class AirSwingAutoMode(Enum):
-    Disabled = 1
-    Both = 0
-    AirSwingLR = 3
-    AirSwingUD = 2
+    DISABLED = 1
+    BOTH = 0
+    SWING_LEFT_RIGHT = 3
+    SWING_UP_DOWN = 2
 
 
 class FanSpeed(Enum):
-    Auto = 0
-    Low = 1
-    LowMid = 2
-    Mid = 3
-    HighMid = 4
-    High = 5
+    AUTO = 0
+    LOW = 1
+    MEDIUM_LOW = 2
+    MEDIUM = 3
+    MEDIUM_HIGH = 4
+    HIGH = 5
 
 
 class DataMode(Enum):
-    Day = 0
-    Week = 1
-    Month = 2
-    Year = 4
+    DAY = 0
+    WEEK = 1
+    MONTH = 2
+    YEAR = 4
 
 
 class NanoeMode(Enum):
-    Unavailable = 0
-    Off = 1
-    On = 2
-    ModeG = 3
-    All = 4
+    UNAVAILABLE = 0
+    OFF = 1
+    ON = 2
+    MODE_G = 3
+    ALL = 4
 
 class EcoNaviMode(Enum):
-    Unavailable = 0
-    Off = 1
-    On = 2
+    UNAVAILABLE = 0
+    OFF = 1
+    ON = 2
 
 class EcoFunctionMode(Enum):
-    Unavailable = 0
-    Off = 1
-    On = 2
+    UNAVAILABLE = 0
+    OFF = 1
+    ON = 2
 
 class ZoneMode(Enum):
-    Off = 0
-    On = 1
+    OFF = 0
+    ON = 1
 
 class IAutoXMode(Enum):
-    Unavailable = 0
-    Off = 1
-    On = 2
+    UNAVAILABLE = 0
+    OFF = 1
+    ON = 2
 
 class StatusDataMode(Enum):
     LIVE = 0
