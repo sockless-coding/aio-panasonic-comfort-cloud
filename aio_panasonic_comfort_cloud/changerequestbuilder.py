@@ -67,7 +67,7 @@ class ChangeRequestBuilder:
             return None
         if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingLR.value):
             return constants.AirSwingLR.Auto
-        return constants.AirSwingAutoMode(self._request["airSwingLR"])
+        return constants.AirSwingLR(self._request["airSwingLR"])
     
     def set_horizontal_swing(self, new_value: str | constants.AirSwingLR):
         """ Set horizontal swing"""
