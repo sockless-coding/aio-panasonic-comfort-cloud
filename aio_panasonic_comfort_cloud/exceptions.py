@@ -12,3 +12,6 @@ class RequestError(Error):
 
 class ResponseError(Error):
     pass
+
+class DevideIsNotReadyError(Error):
+    pass

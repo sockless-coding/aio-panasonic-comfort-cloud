@@ -30,7 +30,7 @@ class PanasonicSettings:
         self._fileName = fileName
         self._version = None
         self._versionDate = None
-        self._access_token = None
+        self._access_token: str|None = None
         self._access_token_expires = None
         self._refresh_token = None
         self._scope = None
