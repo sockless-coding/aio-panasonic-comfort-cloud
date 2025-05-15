@@ -47,7 +47,7 @@ class ApiClient(panasonicsession.PanasonicSession):
         super().__init__(username, password, client, token_file_name, raw)
 
         self._groups = None
-        self._devices: list[PanasonicDeviceInfo] = None
+        self._devices: list[PanasonicDeviceInfo] | None = None
         self._unknown_devices: list[PanasonicDeviceInfo] = []
         self._cache_devices = {}
 
@@ -92,21 +92,21 @@ class ApiClient(panasonicsession.PanasonicSession):
         if self._devices is None:
             self._devices = []
             self._unknown_devices = []
+            if self._groups is not None and 'groupList' in self._groups:
+                for group in self._groups['groupList']:
+                    if 'deviceList' in group:
+                        device_list = group.get('deviceList', [])
+                    else:
+                        device_list = group.get('deviceIdList', [])
 
-            for group in self._groups['groupList']:
-                if 'deviceList' in group:
-                    device_list = group.get('deviceList', [])
-                else:
-                    device_list = group.get('deviceIdList', [])
-
-                for device in device_list:
-                    if device:
-                        device_info = PanasonicDeviceInfo(device)
-                        if device_info.is_valid:
-                            self._device_indexer[device_info.id] = device_info.guid
-                            self._devices.append(device_info)
-                        else:
-                            self._unknown_devices.append(device_info)
+                    for device in device_list:
+                        if device:
+                            device_info = PanasonicDeviceInfo(device)
+                            if device_info.is_valid:
+                                self._device_indexer[device_info.id] = device_info.guid
+                                self._devices.append(device_info)
+                            else:
+                                self._unknown_devices.append(device_info)
 
             #self._unknown_devices.append(PanasonicDeviceInfo(get_dummy_aquarea_device_json()))
         return self._devices
@@ -184,21 +184,9 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         return device.load(json_response)
     
     async def get_aquarea_device(self, device_info: PanasonicDeviceInfo):
-        id_cookies = dict(selectedGwid=device_info.guid)
-        id_response = await self.execute_aqua_post(
-            url="https://aquarea-smart.panasonic.com/remote/contract",
-            function_description="Get Aquarea device id",
-            expected_status_code=200,
-            cookies=id_cookies,
-        )
-        device_id = id_response.cookies.get("selectedDeviceId").value
-        _LOGGER.debug("Aquarea Device ID for {} is {}".format(device_info.guid, device_id))
-        status_response = await self.execute_aqua_get(
-            self._get_aquarea_device_info_url(device_id), 
-            "Get Aquarea device info", 200)
-        response_text = await status_response.text()
-        _LOGGER.debug("Got response: %s", response_text)
-        return json.loads(response_text)
+        json_response = await self.execute_get(self._get_aquarea_device_info_url(device_info.guid), "get_aquarea_device", 200)
+        return json_response
+    
     
     async def async_get_energy(self, device_info: PanasonicDeviceInfo) -> PanasonicDeviceEnergy | None:
         todays_item = await self._async_get_todays_energy(device_info)
@@ -484,11 +472,12 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
             guid=self._prepare_device_guid(guid)
         )
     
-    def _get_aquarea_device_info_url(self, device_id):
-        return '{base_url}/remote/v1/api/devices/{device_id}?var.deviceDirect=1'.format(
-            base_url="https://aquarea-smart.panasonic.com",
-            device_id=device_id
+    def _get_aquarea_device_info_url(self, guid):
+        return '{base_url}/device/a2wInfo/{guid}'.format(
+            base_url=constants.BASE_PATH_ACC,
+            guid=self._prepare_device_guid(guid)
         )
+
 
     def _get_device_status_control_url(self):
         return '{base_url}/deviceStatus/control'.format(
