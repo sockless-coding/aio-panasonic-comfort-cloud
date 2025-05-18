@@ -9,7 +9,7 @@ from .exceptions import DevideIsNotReadyError
 
 _LOGGER = logging.getLogger(__name__)
 
-ENERGY_VALUE_TTL = timedelta(minutes= 15)
+ENERGY_VALUE_TTL = timedelta(minutes= 25)
 
 def read_enum(json, key, type, default_value):
     if key not in json:
