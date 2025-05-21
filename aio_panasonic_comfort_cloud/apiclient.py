@@ -13,6 +13,7 @@ import json
 from . import constants, testdata
 from . import panasonicsession
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
+from .models import AquareaStatusResponse
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,8 +184,39 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         json_response = await self._get_device_status(device.info)
         return device.load(json_response)
     
-    async def get_aquarea_device(self, device_info: PanasonicDeviceInfo):
-        json_response = await self.execute_get(self._get_aquarea_device_info_url(device_info.guid), "get_aquarea_device", 200)
+    async def get_aquarea_device(self, device_info: PanasonicDeviceInfo) -> AquareaStatusResponse:
+        json_response = await self._async_get_aquarea_status(device_info)
+        return AquareaStatusResponse.from_dict(json_response)
+    
+    async def _async_get_aquarea_status(self, device_info: PanasonicDeviceInfo):
+        if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
+            or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
+            try:
+                payload = {
+                    "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=1",
+                    "requestMethod": "GET"
+                }
+                json_response = await self.execute_post(
+                    self._get_aquarea_request_url(),
+                    payload,
+                    "get_aquarea_status", 
+                    200)
+                device_info.status_data_mode = constants.StatusDataMode.LIVE
+                return json_response
+            except Exception as e:
+                _LOGGER.warning("Failed to get live status for device {} switching to cached data.".format(device_info.guid))
+                device_info.status_data_mode = constants.StatusDataMode.CACHED
+                self._cache_devices[device_info.id] = 10
+        payload = {
+            "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=0",
+            "requestMethod": "GET"
+        }
+        json_response = await self.execute_post(
+            self._get_aquarea_request_url(),
+            payload,
+            "get_aquarea_status", 
+            200)
+        self._cache_devices[device_info.id] -= 1
         return json_response
     
     
@@ -487,6 +519,11 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     def _get_device_history_url(self):
         return '{base_url}/deviceHistoryData'.format(
             base_url=constants.BASE_PATH_ACC,
+        )
+    
+    def _get_aquarea_request_url(self):
+        return '{base_url}/remote/v1/app/common/transfer'.format(
+            base_url=constants.BASE_PATH_ACC
         )
     
     def _prepare_device_guid(self, device_guid: str):
