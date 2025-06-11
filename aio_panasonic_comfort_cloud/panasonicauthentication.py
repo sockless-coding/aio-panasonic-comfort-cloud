@@ -152,7 +152,7 @@ class PanasonicAuthentication:
                 "response_type": "code",
                 "scope": "openid offline_access comfortcloud.control a2w.control",
                 "audience": f"https://digital.panasonic.com/{APP_CLIENT_ID}/api/v1/",
-                "_csrf": csrf,
+                "_csrf": csrf.value,
                 "state": state,
                 "_intstate": "deprecated",
                 "username": username,
