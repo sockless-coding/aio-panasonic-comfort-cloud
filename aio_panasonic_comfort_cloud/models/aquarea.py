@@ -53,6 +53,7 @@ class AquareaStatus:
     bivalent: int
     bivalentActual: int
     waterPressure: int
+    electricAnode: int
     deiceStatus: int
     specialStatus: int
     outdoorNow: int
