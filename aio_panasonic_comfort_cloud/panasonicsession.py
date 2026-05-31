@@ -245,18 +245,15 @@ class PanasonicSession:
 
     def _print_response_if_raw_is_set(self, response, function_description):
         if self._raw:
-            print("=" * 79)
-            print(f"Response: {function_description}")
-            print("=" * 79)
-            print(f"Status: {response.status_code}")
-            print("-" * 79)
-            print("Headers:")
+            _LOGGER.debug("=" * 79)
+            _LOGGER.debug("Response: %s", function_description)
+            _LOGGER.debug("=" * 79)
+            _LOGGER.debug("Status: %d", response.status)
+            _LOGGER.debug("-" * 79)
+            _LOGGER.debug("Headers:")
             for header in response.headers:
-                print(f'{header}: {response.headers[header]}')
-            print("-" * 79)
-            print("Response body:")
-            print(response.text)
-            print("-" * 79)
+                _LOGGER.debug("%s: %s", header, response.headers[header])
+            _LOGGER.debug("-" * 79)
 
     async def _ensure_valid_token(self):
         if self._settings.is_access_token_valid:

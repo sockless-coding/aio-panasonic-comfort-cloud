@@ -40,6 +40,14 @@ def get_current_time_zone():
 
 
 class ApiClient(panasonicsession.PanasonicSession):
+    """Asynchronous client for the Panasonic Comfort Cloud API.
+
+    Can be used as an async context manager to automatically start and stop sessions:
+
+        async with ApiClient(email, password, session) as client:
+            devices = client.get_devices()
+    """
+
     def __init__(self,
                  username,
                  password,
@@ -56,6 +64,17 @@ class ApiClient(panasonicsession.PanasonicSession):
         self._device_indexer = {}
         self._raw = raw
         self._acc_client_id = None
+
+    async def __aenter__(self):
+        await self.start_session()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        try:
+            await self.stop_session()
+        except Exception:
+            _LOGGER.debug("Error during session cleanup", exc_info=True)
+        return False
 
     @property
     def unknown_devices(self):
@@ -406,7 +425,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         await self.set_device_raw(
             device,
             {
-                "nanoe", new_value.value
+                "nanoe": new_value.value
             })
         
     async def set_eco_navi_mode(self, device:PanasonicDevice, new_value: str | constants.EcoNaviMode):
@@ -416,7 +435,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         await self.set_device_raw(
             device,
             {
-                "ecoNavi", new_value.value
+                "ecoNavi": new_value.value
             })
         
     async def set_eco_function_mode(self, device:PanasonicDevice, new_value: str | constants.EcoFunctionMode):
@@ -426,7 +445,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         await self.set_device_raw(
             device,
             {
-                "ecoFunctionData", new_value.value
+                "ecoFunctionData": new_value.value
             })
 
     async def set_device_raw(self, device:PanasonicDevice, parameters):
@@ -511,7 +530,6 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
                     fan_auto = fan_auto | 2
                 else:
                     fan_auto = fan_auto & ~2
-                    print(air_y.name)
                     parameters['airSwingUD'] = air_y.value
 
             if fan_auto == 3:

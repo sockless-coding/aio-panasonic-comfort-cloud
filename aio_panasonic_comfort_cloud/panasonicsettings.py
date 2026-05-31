@@ -35,6 +35,7 @@ class PanasonicSettings:
         self._refresh_token = None
         self._scope = None
         self._clientId = ""
+        self._pending_saves: set[asyncio.Task] = set()
         self._loading_task =asyncio.ensure_future(self._load())
         
     async def is_ready(self):
@@ -81,13 +82,23 @@ class PanasonicSettings:
         data[SETTING_REFRESH_TOKEN] = self._refresh_token
         data[SETTING_CLIENT_ID] = self._clientId
         data[SETTING_SCOPE] = self._scope
-        asyncio.ensure_future(self._do_save(data))
-        
+
+        # Deduplicate saves — if there's already a pending save, skip this one.
+        # The most recent state will be saved when the pending task completes.
+        if self._pending_saves:
+            return
+
+        task = asyncio.ensure_future(self._do_save(data))
+        self._pending_saves.add(task)
+        task.add_done_callback(self._pending_saves.discard)
 
     async def _do_save(self, data):
-        async with aiofiles.open(self._fileName, 'w') as outfile:
-            await outfile.write(json.dumps(data))
-            _LOGGER.debug("Saved settings to '%s'", self._fileName)
+        try:
+            async with aiofiles.open(self._fileName, 'w') as outfile:
+                await outfile.write(json.dumps(data))
+                _LOGGER.debug("Saved settings to '%s'", self._fileName)
+        except Exception as ex:
+            _LOGGER.warning("Failed to save settings to '%s'", self._fileName, exc_info=ex)
 
     @property
     def version(self):
@@ -130,8 +141,11 @@ class PanasonicSettings:
         token_info_json = json.loads(part_of_token)
         expiry_in_token = token_info_json["exp"]
 
-        
-        return current_time < expiry_in_token or current_time < self._access_token_expires
+        # Token is valid if the JWT exp claim hasn't passed, and also check
+        # our locally stored expiry timestamp as a fallback.
+        return current_time < expiry_in_token or (
+            self._access_token_expires is not None and current_time < self._access_token_expires
+        )
     
     @property
     def has_refresh_token(self) -> bool:

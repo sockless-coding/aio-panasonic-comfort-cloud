@@ -13,7 +13,8 @@ class RequestError(Error):
 class ResponseError(Error):
     pass
 
-class DevideIsNotReadyError(Error):
+class DeviceIsNotReadyError(Error):
+    """Raised when a device is not ready (features/parameters not yet loaded)."""
     pass
 
 
