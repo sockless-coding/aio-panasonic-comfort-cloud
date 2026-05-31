@@ -86,11 +86,15 @@ class ApiClient(panasonicsession.PanasonicSession):
 
     async def start_session(self, otp_code: str | None = None):
         await super().start_session(otp_code)
-        try:
-            await self.ensure_all_agreements_accepted()
-        except AgreementNotAcceptedError as ex:
-            _LOGGER.warning("Agreement acceptance failed", exc_info=ex)
-            # Continue anyway — the user may need to accept manually via the app
+        #try:
+        #    await self.ensure_all_agreements_accepted()
+        #except AgreementNotAcceptedError as ex:
+        #    _LOGGER.warning("Agreement acceptance failed", exc_info=ex)
+        #    # Continue anyway — the user may need to accept manually via the app
+        #except Exception as ex:
+        #    _LOGGER.warning("Could not get authentication status, trying to re-authenticate", exc_info=ex)
+        #    await self.reauthenticate(otp_code)
+        #    await self.ensure_all_agreements_accepted()
         try:
             await self._get_groups()
         except AgreementNotAcceptedError:
@@ -140,24 +144,13 @@ class ApiClient(panasonicsession.PanasonicSession):
 
         Returns:
             The agreement status (1 = accepted, any other value = not accepted).
-            Returns 1 (accepted) if the endpoint returns 403, as this likely means
-            the API no longer requires these agreements.
         """
-        try:
-            result = await self.execute_get(
-                self._get_agreement_status_url(type_id),
-                "check_agreement_status",
-                200
-            )
-            return result.get("agreementStatus")
-        except ResponseError as ex:
-            if "403" in str(ex):
-                _LOGGER.debug(
-                    "Agreement status endpoint returned 403 for type %s, treating as accepted",
-                    type_id
-                )
-                return 1
-            raise
+        result = await self.execute_get(
+            self._get_agreement_status_url(type_id),
+            "check_agreement_status",
+            200
+        )
+        return result.get("agreementStatus")
 
     async def accept_agreement(self, type_id: int):
         """Accept an agreement by sending a PUT request.
