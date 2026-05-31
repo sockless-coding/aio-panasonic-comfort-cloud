@@ -47,7 +47,11 @@ class PanasonicSettings:
             return
         try:
             async with aiofiles.open(self._fileName) as json_file:
-                data = json.loads(await json_file.read())
+                content = await json_file.read()
+                if not content or not content.strip():
+                    _LOGGER.warning("Settings file '%s' is empty, ignoring", self._fileName)
+                    return
+                data = json.loads(content)
                 if SETTING_VERSION in data:
                     self._version = data[SETTING_VERSION]
                 if SETTING_VERSION_DATE in data:

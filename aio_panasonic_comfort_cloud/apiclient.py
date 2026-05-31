@@ -12,7 +12,7 @@ import json
 
 from . import constants, testdata
 from . import panasonicsession
-from .exceptions import AgreementNotAcceptedError
+from .exceptions import AgreementNotAcceptedError, ResponseError
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
 from .models import AquareaStatusResponse
 
@@ -74,8 +74,11 @@ class ApiClient(panasonicsession.PanasonicSession):
             # Continue anyway — the user may need to accept manually via the app
         try:
             await self._get_groups()
+        except AgreementNotAcceptedError:
+            # Re-authenticating won't help if terms/policies need acceptance, so re-raise
+            raise
         except Exception as ex:
-            _LOGGER.warning("Could not get groups, trying to re-authenticate", exc_info= ex)
+            _LOGGER.warning("Could not get groups, trying to re-authenticate", exc_info=ex)
             await self.reauthenticate(otp_code)
             await self._get_groups()
 
@@ -88,11 +91,20 @@ class ApiClient(panasonicsession.PanasonicSession):
         await super().start_session()
 
     async def _get_groups(self):
-        self._groups = await self.execute_get(
-            self._get_group_url(),
-            "get_groups",
-            200
-        )
+        try:
+            self._groups = await self.execute_get(
+                self._get_group_url(),
+                "get_groups",
+                200
+            )
+        except ResponseError as ex:
+            # Error code 4103 means terms/policies have been updated and need acceptance
+            if "4103" in str(ex):
+                _LOGGER.warning(
+                    "Terms and/or policies have been updated (error 4103), agreement acceptance required"
+                )
+                raise AgreementNotAcceptedError() from ex
+            raise
         self._devices = None
 
     # — Agreement / terms acceptance —
@@ -109,13 +121,24 @@ class ApiClient(panasonicsession.PanasonicSession):
 
         Returns:
             The agreement status (1 = accepted, any other value = not accepted).
+            Returns 1 (accepted) if the endpoint returns 403, as this likely means
+            the API no longer requires these agreements.
         """
-        result = await self.execute_get(
-            self._get_agreement_status_url(type_id),
-            "check_agreement_status",
-            200
-        )
-        return result.get("agreementStatus")
+        try:
+            result = await self.execute_get(
+                self._get_agreement_status_url(type_id),
+                "check_agreement_status",
+                200
+            )
+            return result.get("agreementStatus")
+        except ResponseError as ex:
+            if "403" in str(ex):
+                _LOGGER.debug(
+                    "Agreement status endpoint returned 403 for type %s, treating as accepted",
+                    type_id
+                )
+                return 1
+            raise
 
     async def accept_agreement(self, type_id: int):
         """Accept an agreement by sending a PUT request.
@@ -210,9 +233,14 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
             return None
         if not time_zone:
             time_zone = get_current_time_zone()
-        try:
-            data_mode = constants.DataMode[mode].value
-        except KeyError:
+        if isinstance(mode, str):
+            try:
+                data_mode = constants.DataMode[mode].value
+            except KeyError:
+                raise Exception("Wrong mode parameter")
+        elif isinstance(mode, constants.DataMode):
+            data_mode = mode.value
+        else:
             raise Exception("Wrong mode parameter")
 
         payload = {
