@@ -12,6 +12,7 @@ import json
 
 from . import constants, testdata
 from . import panasonicsession
+from .exceptions import AgreementNotAcceptedError
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
 from .models import AquareaStatusResponse
 
@@ -64,17 +65,22 @@ class ApiClient(panasonicsession.PanasonicSession):
     def has_unknown_devices(self):
         return len(self._unknown_devices) > 0
 
-    async def start_session(self):
-        await super().start_session()
+    async def start_session(self, otp_code: str | None = None):
+        await super().start_session(otp_code)
+        try:
+            await self.ensure_all_agreements_accepted()
+        except AgreementNotAcceptedError as ex:
+            _LOGGER.warning("Agreement acceptance failed", exc_info=ex)
+            # Continue anyway — the user may need to accept manually via the app
         try:
             await self._get_groups()
         except Exception as ex:
             _LOGGER.warning("Could not get groups, trying to re-authenticate", exc_info= ex)
-            await self.reauthenticate()
+            await self.reauthenticate(otp_code)
             await self._get_groups()
 
-    async def reauthenticate(self):
-        await super().reauthenticate()
+    async def reauthenticate(self, otp_code: str | None = None):
+        await super().reauthenticate(otp_code)
         await self._get_groups()    
 
 
@@ -88,6 +94,69 @@ class ApiClient(panasonicsession.PanasonicSession):
             200
         )
         self._devices = None
+
+    # — Agreement / terms acceptance —
+
+    AGREEMENT_TYPE_TERMS = 1       # Terms & Conditions
+    AGREEMENT_TYPE_PRIVACY = 2     # Privacy Policy
+    AGREEMENT_TYPE_SERVICE = 3     # Service Agreement (Turkey only)
+
+    async def check_agreement_status(self, type_id: int):
+        """Check if an agreement of the given type has been accepted.
+
+        Args:
+            type_id: 1 = Terms & Conditions, 2 = Privacy Policy, 3 = Service Agreement
+
+        Returns:
+            The agreement status (1 = accepted, any other value = not accepted).
+        """
+        result = await self.execute_get(
+            self._get_agreement_status_url(type_id),
+            "check_agreement_status",
+            200
+        )
+        return result.get("agreementStatus")
+
+    async def accept_agreement(self, type_id: int):
+        """Accept an agreement by sending a PUT request.
+
+        Args:
+            type_id: 1 = Terms & Conditions, 2 = Privacy Policy, 3 = Service Agreement
+        """
+        payload = {
+            "agreementStatus": 1,
+            "type": type_id
+        }
+        await self.execute_put(
+            self._get_agreement_accept_url(),
+            payload,
+            "accept_agreement",
+            200
+        )
+
+    async def ensure_all_agreements_accepted(self):
+        """Check and auto-accept all pending agreements.
+
+        Checks Types 1 (Terms & Conditions) and 2 (Privacy Policy).
+        Type 3 (Service Agreement) is only checked for Turkish users — skipped here.
+
+        Raises:
+            AgreementNotAcceptedError: If an agreement could not be accepted.
+        """
+        pending = []
+        for type_id in (self.AGREEMENT_TYPE_TERMS, self.AGREEMENT_TYPE_PRIVACY):
+            status = await self.check_agreement_status(type_id)
+            if status != 1:
+                _LOGGER.info("Agreement type %s not accepted (status=%s), attempting to accept", type_id, status)
+                try:
+                    await self.accept_agreement(type_id)
+                    _LOGGER.info("Successfully accepted agreement type %s", type_id)
+                except Exception as ex:
+                    _LOGGER.warning("Failed to auto-accept agreement type %s", type_id, exc_info=ex)
+                    pending.append(type_id)
+
+        if pending:
+            raise AgreementNotAcceptedError(pending)
 
     def get_devices(self):
         if self._devices is None:
@@ -523,6 +592,17 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     
     def _get_aquarea_request_url(self):
         return '{base_url}/remote/v1/app/common/transfer'.format(
+            base_url=constants.BASE_PATH_ACC
+        )
+
+    def _get_agreement_status_url(self, type_id: int):
+        return '{base_url}/auth/agreement/status/{type_id}'.format(
+            base_url=constants.BASE_PATH_ACC,
+            type_id=type_id
+        )
+
+    def _get_agreement_accept_url(self):
+        return '{base_url}/auth/agreement/status/'.format(
             base_url=constants.BASE_PATH_ACC
         )
     

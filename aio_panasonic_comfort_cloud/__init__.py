@@ -19,7 +19,8 @@ from .exceptions import (
     Error,
     LoginError,
     RequestError,
-    ResponseError
+    ResponseError,
+    MFARequiredError
 )
 
 from . import constants

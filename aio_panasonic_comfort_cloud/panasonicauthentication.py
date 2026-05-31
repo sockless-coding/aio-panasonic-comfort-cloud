@@ -31,16 +31,30 @@ def get_querystring_parameter_from_header_entry_url(response: aiohttp.ClientResp
     params = urllib.parse.parse_qs(parsed_url.query)
     return params.get(querystring_parameter, [None])[0]
 
+
+def get_querystring_parameter_from_url(url: str, querystring_parameter: str):
+    """Extract a query parameter from a URL string."""
+    parsed_url = urllib.parse.urlparse(url)
+    params = urllib.parse.parse_qs(parsed_url.query)
+    return params.get(querystring_parameter, [None])[0]
+
 class PanasonicAuthentication:
 
     def __init__(self, client: aiohttp.ClientSession, settings: PanasonicSettings, app_version:CCAppVersion):
         self._client = client
         self._settings = settings
         self._app_version = app_version
+        # State for 2FA flow
+        self._mfa_token = None
+        self._mfa_parameters = {}
 
-    async def authenticate(self, username: str, password: str):
+    async def authenticate(self, username: str, password: str, otp_code: str | None = None):
       
         self._client.cookie_jar.clear_domain('authglb.digital.panasonic.com')
+        # Reset 2FA state
+        self._mfa_token = None
+        self._mfa_parameters = {}
+
         # generate initial state and code_challenge
         code_verifier = generate_random_string(43)
 
@@ -62,10 +76,105 @@ class PanasonicAuthentication:
             code = get_querystring_parameter_from_header_entry_url(
                 authorization_response, 'Location', 'code')
         else:
-            code = await self._login(authorization_response, username, password)
+            try:
+                code = await self._login(authorization_response, username, password)
+            except exceptions.MFARequiredError as e:
+                if otp_code is None:
+                    raise
+                _LOGGER.debug("MFA required and OTP code provided, verifying")
+                # Verify the MFA code and get the authorization code
+                mfa_result = await self.verify_mfa(otp_code)
+                if isinstance(mfa_result, str):
+                    code = mfa_result
+                else:
+                    raise exceptions.ResponseError("MFA verification did not return an authorization code")
         
         await self._request_new_token(code, code_verifier)
         await self._retrieve_client_acc()
+
+    async def verify_mfa(self, otp_code: str):
+        """Verify the MFA/2FA OTP code after a login attempt triggered 2FA.
+
+        Args:
+            otp_code: The one-time password from the user's authenticator app.
+
+        Returns:
+            True if verification succeeded and authentication is complete.
+
+        Raises:
+            MFARequiredError: If no pending MFA challenge exists (call authenticate first).
+        """
+        if not self._mfa_token:
+            raise exceptions.MFARequiredError("No pending MFA challenge. Call authenticate() first.")
+
+        # Reset state so a retry is possible
+        mfa_token = self._mfa_token
+        parameters = dict(self._mfa_parameters)
+        self._mfa_token = None
+        self._mfa_parameters = {}
+
+        _LOGGER.debug("Submitting MFA verification with OTP code")
+        response = await self._client.post(
+            f'{BASE_PATH_AUTH}/u2f/mfa/verify',
+            headers={
+                "Auth0-Client": AUTH_0_CLIENT,
+                "user-agent": AUTH_API_USER_AGENT,
+            },
+            json={
+                "mfa_token": mfa_token,
+                "mfa_type": "otp",
+                "code": otp_code,
+                **parameters,
+            },
+            allow_redirects=False)
+        await check_response(response, 'verify_mfa', 200)
+
+        # After successful MFA verification we need to continue the flow
+        # The response should redirect us back to the callback
+        response_text = await response.text()
+        _LOGGER.debug("MFA verification response, %s", json.dumps({'html': response_text}))
+
+        # Parse hidden form fields from the response (similar to login callback)
+        soup = BeautifulSoup(response_text, "html.parser")
+        input_lines = soup.find_all("input", {"type": "hidden"})
+        for input_line in input_lines:
+            name = input_line.get("name")
+            value = input_line.get("value")
+            if name and value is not None:
+                self._mfa_parameters[name] = value
+
+        # Check if we got a redirect (MFA verified, proceed to callback)
+        if response.status == 200 and 'Location' in response.headers:
+            location = response.headers['Location']
+            _LOGGER.debug("MFA verification redirect, %s", json.dumps({'redirect': location}))
+
+            # Follow the redirect — this should lead to the final auth code
+            follow_response = await self._client.get(
+                f"{BASE_PATH_AUTH}/{location}",
+                allow_redirects=False)
+            await check_response(follow_response, 'mfa_redirect', 302)
+
+            location = follow_response.headers['Location']
+            _LOGGER.debug("MFA redirect result, %s", json.dumps({'redirect': location}))
+
+            # Extract the code from the final redirect
+            if REDIRECT_URI in location:
+                code = get_querystring_parameter_from_url(location, 'code')
+                return code
+            else:
+                # May need another follow
+                follow_response2 = await self._client.get(
+                    f"{BASE_PATH_AUTH}/{location}",
+                    allow_redirects=False)
+
+                if 'Location' in follow_response2.headers:
+                    location2 = follow_response2.headers['Location']
+                    _LOGGER.debug("MFA second redirect, %s", json.dumps({'redirect': location2}))
+                    if REDIRECT_URI in location2:
+                        code = get_querystring_parameter_from_url(location2, 'code')
+                        return code
+
+        raise exceptions.ResponseError("MFA verification did not produce a valid authorization code")
         
     async def refresh_token(self):
         _LOGGER.debug("Refreshing token")
@@ -175,6 +284,15 @@ class PanasonicAuthentication:
         parameters = dict()
         for input_line in input_lines:
             parameters[input_line.get("name")] = input_line.get("value")
+
+        # Check if 2FA/MFA is required — Auth0 returns an mfa_token instead of callback params
+        mfa_token = parameters.get("mfa_token")
+        if mfa_token:
+            _LOGGER.debug("MFA/2FA challenge detected, storing mfa_token for verification")
+            self._mfa_token = mfa_token
+            # Store all other parameters that may be needed for the MFA verify call
+            self._mfa_parameters = {k: v for k, v in parameters.items() if k != "mfa_token"}
+            raise exceptions.MFARequiredError(mfa_token)
 
         _LOGGER.debug("Callback with parameters, %s", json.dumps(parameters))
         response = await self._client.post(

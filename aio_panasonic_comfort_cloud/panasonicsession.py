@@ -44,28 +44,33 @@ class PanasonicSession:
         self._request_semaphore = asyncio.Semaphore(1)
         self._aqua_cookies = aiohttp.CookieJar()
 
-    async def start_session(self):
+    @property
+    def authentication(self):
+        """Access to the underlying PanasonicAuthentication instance (useful for 2FA/MFA handling)."""
+        return self._authentication
+
+    async def start_session(self, otp_code: str | None = None):
         _LOGGER.debug("Starting Session")
         await self._settings.is_ready()
         if (not self._settings.has_refresh_token):
             _LOGGER.debug("No refresh token found")
-            await self._authentication.authenticate(self._username, self._password)
+            await self._authentication.authenticate(self._username, self._password, otp_code)
         if (not self._settings.is_access_token_valid):
             _LOGGER.debug("Access token is not valid")
             try:
                 await self._authentication.refresh_token()
             except Exception as ex:
                 _LOGGER.debug("Failed to refresh token, trying to reauthenticate", exc_info= ex)
-                await self._authentication.authenticate(self._username, self._password)
+                await self._authentication.authenticate(self._username, self._password, otp_code)
         if (not self._settings.is_access_token_valid):
             _LOGGER.critical("Unable to create a valid access token")
             raise LoginError()
         _LOGGER.debug("Access token is valid")
 
 
-    async def reauthenticate(self):
+    async def reauthenticate(self, otp_code: str | None = None):
         _LOGGER.debug("Reauthenticating")
-        await self._authentication.authenticate(self._username, self._password)
+        await self._authentication.authenticate(self._username, self._password, otp_code)
 
     async def stop_session(self):
         _LOGGER.debug("Stopping Session")
@@ -145,6 +150,36 @@ class PanasonicSession:
             await check_response(response, function_description, expected_status_code)
             response_text = await response.text()
             _LOGGER.debug("GET url: %s, response: %s", url, response_text)
+            return json.loads(response_text)
+
+    async def execute_put(self, url, json_data, function_description, expected_status_code):
+        async with self._request_semaphore:
+            await self._ensure_valid_token()
+
+            try:
+                response = await self._client.put(
+                    url,
+                    json=json_data,
+                    headers=await PanasonicRequestHeader.get(self._settings, self._app_version)
+                )
+                if await has_new_version_been_published(response):
+                    _LOGGER.info("New version of acc client id has been published")
+                    await self._app_version.refresh()
+                    response = await self._client.put(
+                        url,
+                        json=json_data,
+                        headers=await PanasonicRequestHeader.get(self._settings, self._app_version)
+                    )
+            except (aiohttp.client_exceptions.ClientError,
+                    aiohttp.http_exceptions.HttpProcessingError,
+                    aiohttp.web_exceptions.HTTPError) as ex:
+                _LOGGER.error("PUT url: %s, data: %s", url, json_data)
+                raise exceptions.RequestError(ex)
+
+            self._print_response_if_raw_is_set(response, function_description)
+            await check_response(response, function_description, expected_status_code, payload=json_data)
+            response_text = await response.text()
+            _LOGGER.debug("PUT url: %s, data: %s, response: %s", url, json_data, response_text)
             return json.loads(response_text)
         
     async def execute_aqua_get(
