@@ -16,12 +16,12 @@ class CCAppVersion:
     async def get(self):
         if self._settings.is_version_expired:
             await self.refresh()
-        return self._settings._version
+        return self._settings.version
     
     async def refresh(self):
         try:
             await self._update_playstore()
-        except:
+        except Exception:
             await self._update_appbrain()
 
     async def _update_gist(self):        

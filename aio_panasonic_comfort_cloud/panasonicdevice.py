@@ -5,7 +5,7 @@ import math
 
 from . import constants
 from . import testdata
-from .exceptions import DevideIsNotReadyError
+from .exceptions import DeviceIsNotReadyError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -292,13 +292,13 @@ class PanasonicDeviceParameters:
         if 'airSwingLR' in json:
             try:
                 self.horizontal_swing_mode = constants.AirSwingLR(json['airSwingLR'])
-            except:
-                _LOGGER.warning("Invalid horizontal swing mode '%s'", json['airSwingLR'])
+            except (ValueError, TypeError) as exc:
+                _LOGGER.warning("Invalid horizontal swing mode '%s': %s", json['airSwingLR'], exc)
         if 'airSwingUD' in json:
             try:
                 self.vertical_swing_mode = constants.AirSwingUD(json['airSwingUD'])
-            except:
-                _LOGGER.warning("Invalid vertical swing mode '%s'", json['airSwingUD'])
+            except (ValueError, TypeError) as exc:
+                _LOGGER.warning("Invalid vertical swing mode '%s': %s", json['airSwingUD'], exc)
         if 'fanAutoMode' in json:
             if json['fanAutoMode'] == constants.AirSwingAutoMode.Both.value:
                 self.horizontal_swing_mode = constants.AirSwingLR.Auto
@@ -334,13 +334,13 @@ class PanasonicDevice:
     @property
     def features(self):
         if self._features is None:
-            raise DevideIsNotReadyError
+            raise DeviceIsNotReadyError
         return self._features
     
     @property
     def parameters(self) -> PanasonicDeviceParameters:
         if self._parameters is None:
-            raise DevideIsNotReadyError
+            raise DeviceIsNotReadyError
         return self._parameters
 
     @property
