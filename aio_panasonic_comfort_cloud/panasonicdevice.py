@@ -36,6 +36,19 @@ class PanasonicDeviceInfo:
         self._has_parameters = False
         self._raw = None
         self._status_data_mode = constants.StatusDataMode.LIVE
+
+        # Additional device metadata
+        self._device_type: str | None = None
+        self._permission: int = 0
+        self._temperature_unit: int = 0
+        self._summer_house: int = 0
+        self._nanoe_stand_alone: bool = False
+        self._auto_mode: bool = False
+        self._power_consumption_flag: bool = False
+        self._mode_avl_list: dict | None = None
+        self._model_version: int = 0
+        self._coordinable_flag: bool = False
+
         self.load(json)
 
 
@@ -52,6 +65,18 @@ class PanasonicDeviceInfo:
         self.model = read_value(json, 'deviceModuleNumber', self.model)
         self._has_parameters = 'parameters' in json
         self._raw = json
+
+        # Additional device metadata
+        self._device_type = read_value(json, 'deviceType', self._device_type)
+        self._permission = read_value(json, 'permission', self._permission)
+        self._temperature_unit = read_value(json, 'temperatureUnit', self._temperature_unit)
+        self._summer_house = read_value(json, 'summerHouse', self._summer_house)
+        self._nanoe_stand_alone = read_value(json, 'nanoeStandAlone', self._nanoe_stand_alone)
+        self._auto_mode = read_value(json, 'autoMode', self._auto_mode)
+        self._power_consumption_flag = read_value(json, 'powerConsumptionFlg', self._power_consumption_flag)
+        self._mode_avl_list = read_value(json, 'modeAvlList', self._mode_avl_list)
+        self._model_version = read_value(json, 'modelVersion', self._model_version)
+        self._coordinable_flag = read_value(json, 'coordinableFlg', self._coordinable_flag)
 
     @property
     def id(self):
@@ -71,6 +96,46 @@ class PanasonicDeviceInfo:
     @status_data_mode.setter
     def status_data_mode(self, value: constants.StatusDataMode):
         self._status_data_mode = value
+
+    @property
+    def device_type(self):
+        return self._device_type
+
+    @property
+    def permission(self):
+        return self._permission
+
+    @property
+    def temperature_unit(self):
+        return self._temperature_unit
+
+    @property
+    def summer_house(self):
+        return self._summer_house
+
+    @property
+    def nanoe_stand_alone(self):
+        return self._nanoe_stand_alone
+
+    @property
+    def auto_mode(self):
+        return self._auto_mode
+
+    @property
+    def power_consumption_flag(self):
+        return self._power_consumption_flag
+
+    @property
+    def mode_avl_list(self):
+        return self._mode_avl_list
+
+    @property
+    def model_version(self):
+        return self._model_version
+
+    @property
+    def coordinable_flag(self):
+        return self._coordinable_flag
     
     
     
@@ -91,6 +156,14 @@ class PanasonicDeviceParameters:
         self._iauto_x_mode = constants.IAutoXMode.Unavailable
         self._zones: list[PanasonicDeviceZone] = []
         self._zone_index: dict[int, PanasonicDeviceZone] = {}
+
+        # Additional parameters
+        self._air_direction: int = 0
+        self._air_quality: int = 0
+        self._last_setting_mode: int = 0
+        self._inside_cleaning: int = 0
+        self._fireplace: int = 0
+
         self._has_changed = False
         self.load(json)
         
@@ -235,6 +308,56 @@ class PanasonicDeviceParameters:
     def get_zone(self, zone_id: int):
         return self._zone_index[zone_id]
 
+    @property
+    def air_direction(self):
+        return self._air_direction
+    @air_direction.setter
+    def air_direction(self, value):
+        if self._air_direction == value:
+            return
+        self._air_direction = value
+        self._has_changed = True
+
+    @property
+    def air_quality(self):
+        return self._air_quality
+    @air_quality.setter
+    def air_quality(self, value):
+        if self._air_quality == value:
+            return
+        self._air_quality = value
+        self._has_changed = True
+
+    @property
+    def last_setting_mode(self):
+        return self._last_setting_mode
+    @last_setting_mode.setter
+    def last_setting_mode(self, value):
+        if self._last_setting_mode == value:
+            return
+        self._last_setting_mode = value
+        self._has_changed = True
+
+    @property
+    def inside_cleaning(self):
+        return self._inside_cleaning
+    @inside_cleaning.setter
+    def inside_cleaning(self, value):
+        if self._inside_cleaning == value:
+            return
+        self._inside_cleaning = value
+        self._has_changed = True
+
+    @property
+    def fireplace(self):
+        return self._fireplace
+    @fireplace.setter
+    def fireplace(self, value):
+        if self._fireplace == value:
+            return
+        self._fireplace = value
+        self._has_changed = True
+
     def load(self, json) -> bool:
         _LOGGER.debug('Loading device parameters, has data: %s', json is not None)
         if not json:
@@ -254,6 +377,18 @@ class PanasonicDeviceParameters:
         self.eco_navi_mode = read_enum(json, 'ecoNavi', constants.EcoNaviMode, self.eco_navi_mode)
         self.eco_function_mode = read_enum(json, 'ecoFunctionData', constants.EcoFunctionMode, self.eco_function_mode)
         self.iautox_mode = read_enum(json, 'iAuto', constants.IAutoXMode, self.iautox_mode)
+        
+        # Additional parameters
+        if 'airDirection' in json:
+            self.air_direction = json['airDirection']
+        if 'airQuality' in json:
+            self.air_quality = json['airQuality']
+        if 'lastSettingMode' in json:
+            self.last_setting_mode = json['lastSettingMode']
+        if 'insideCleaning' in json:
+            self.inside_cleaning = json['insideCleaning']
+        if 'fireplace' in json:
+            self.fireplace = json['fireplace']
         
         self._load_zones(json)
         has_changed = self._has_changed
@@ -427,7 +562,8 @@ class PanasonicDevice:
             has_changed = True if self._parameters.load(json_parameters) else has_changed
         if has_changed:
             self._last_update = datetime.now(timezone.utc)
-        self._timestamp = datetime.fromtimestamp(json['timestamp'] / 1000, timezone.utc)
+        if json and 'timestamp' in json:
+            self._timestamp = datetime.fromtimestamp(json['timestamp'] / 1000, timezone.utc)
         return has_changed
 
 
@@ -449,6 +585,17 @@ class PanasonicDeviceFeatures:
         self._air_swing_lr = False
         self._auto_swing_ud = False
         self._eco_function = 0
+
+        # Additional feature flags
+        self._temperature_unit: int = 0
+        self._clothes_drying: bool = False
+        self._inside_cleaning: bool = False
+        self._fireplace: bool = False
+        self._off_timer: bool = False
+        self._power_consumption_flag: bool = False
+        self._paired_flag: bool = False
+        self._device_nanoe: int = 0
+        self._mode_avl_list: dict | None = None
 
         self._has_changed = False
         self.load(json)
@@ -617,6 +764,96 @@ class PanasonicDeviceFeatures:
         self._eco_function = value
         self._has_changed = True
 
+    @property
+    def temperature_unit(self):
+        return self._temperature_unit
+    @temperature_unit.setter
+    def temperature_unit(self, value):
+        if self._temperature_unit == value:
+            return
+        self._temperature_unit = value
+        self._has_changed = True
+
+    @property
+    def clothes_drying(self):
+        return self._clothes_drying
+    @clothes_drying.setter
+    def clothes_drying(self, value):
+        if self._clothes_drying == value:
+            return
+        self._clothes_drying = value
+        self._has_changed = True
+
+    @property
+    def inside_cleaning(self):
+        return self._inside_cleaning
+    @inside_cleaning.setter
+    def inside_cleaning(self, value):
+        if self._inside_cleaning == value:
+            return
+        self._inside_cleaning = value
+        self._has_changed = True
+
+    @property
+    def fireplace(self):
+        return self._fireplace
+    @fireplace.setter
+    def fireplace(self, value):
+        if self._fireplace == value:
+            return
+        self._fireplace = value
+        self._has_changed = True
+
+    @property
+    def off_timer(self):
+        return self._off_timer
+    @off_timer.setter
+    def off_timer(self, value):
+        if self._off_timer == value:
+            return
+        self._off_timer = value
+        self._has_changed = True
+
+    @property
+    def power_consumption_flag(self):
+        return self._power_consumption_flag
+    @power_consumption_flag.setter
+    def power_consumption_flag(self, value):
+        if self._power_consumption_flag == value:
+            return
+        self._power_consumption_flag = value
+        self._has_changed = True
+
+    @property
+    def paired_flag(self):
+        return self._paired_flag
+    @paired_flag.setter
+    def paired_flag(self, value):
+        if self._paired_flag == value:
+            return
+        self._paired_flag = value
+        self._has_changed = True
+
+    @property
+    def device_nanoe(self):
+        return self._device_nanoe
+    @device_nanoe.setter
+    def device_nanoe(self, value):
+        if self._device_nanoe == value:
+            return
+        self._device_nanoe = value
+        self._has_changed = True
+
+    @property
+    def mode_avl_list(self):
+        return self._mode_avl_list
+    @mode_avl_list.setter
+    def mode_avl_list(self, value):
+        if self._mode_avl_list == value:
+            return
+        self._mode_avl_list = value
+        self._has_changed = True
+
     def load(self, json) -> bool:        
         if not json:
             return False
@@ -653,6 +890,27 @@ class PanasonicDeviceFeatures:
             self.auto_swing_ud = json['autoSwingUD']
         if 'ecoFunction' in json:
             self.eco_function = json['ecoFunction']
+
+        # Additional feature flags
+        if 'temperatureUnit' in json:
+            self.temperature_unit = json['temperatureUnit']
+        if 'clothesDrying' in json:
+            self.clothes_drying = json['clothesDrying']
+        if 'insideCleaning' in json:
+            self.inside_cleaning = json['insideCleaning']
+        if 'fireplace' in json:
+            self.fireplace = json['fireplace']
+        if 'offTimer' in json:
+            self.off_timer = json['offTimer']
+        if 'powerConsumptionFlg' in json:
+            self.power_consumption_flag = json['powerConsumptionFlg']
+        if 'pairedFlg' in json:
+            self.paired_flag = json['pairedFlg']
+        if 'deviceNanoe' in json:
+            self.device_nanoe = json['deviceNanoe']
+        if 'modeAvlList' in json:
+            self.mode_avl_list = json['modeAvlList']
+
         has_changed = self._has_changed
         self._has_changed = False
         return has_changed
