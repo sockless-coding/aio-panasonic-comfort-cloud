@@ -29,10 +29,10 @@ def calculate_energy_diff(current_energy, previous_energy):
 class PanasonicDeviceInfo:
     def __init__(self, json = None) -> None:
         self._id: str | None = None
-        self.guid = None
-        self.name = "Unknown Device"
-        self.group = 'My House'
-        self.model = ''
+        self._guid: str | None = None
+        self._name: str = "Unknown Device"
+        self._group: str = 'My House'
+        self._model: str = ''
         self._has_parameters = False
         self._raw = None
         self._status_data_mode = constants.StatusDataMode.LIVE
@@ -52,17 +52,17 @@ class PanasonicDeviceInfo:
         self.load(json)
 
 
-    def load(self, json):
+    def load(self, json) -> bool:
         if not json:
-            return
+            return False
         if 'deviceHashGuid' in json:
             self._id = json['deviceHashGuid']
         else:
             self._id = hashlib.md5(json['deviceGuid'].encode('utf-8')).hexdigest()
-        self.guid = json['deviceGuid']
-        self.name = read_value(json, 'deviceName', self.name)
-        self.group = read_value(json, 'groupName', self.group)
-        self.model = read_value(json, 'deviceModuleNumber', self.model)
+        self._guid = json['deviceGuid']
+        self._name = read_value(json, 'deviceName', self._name)
+        self._group = read_value(json, 'groupName', self._group)
+        self._model = read_value(json, 'deviceModuleNumber', self._model)
         self._has_parameters = 'parameters' in json
         self._raw = json
 
@@ -77,18 +77,35 @@ class PanasonicDeviceInfo:
         self._mode_avl_list = read_value(json, 'modeAvlList', self._mode_avl_list)
         self._model_version = read_value(json, 'modelVersion', self._model_version)
         self._coordinable_flag = read_value(json, 'coordinableFlg', self._coordinable_flag)
+        return True
 
     @property
     def id(self):
         return self._id if self._id is not None else ""
 
     @property
+    def guid(self):
+        return self._guid
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def group(self):
+        return self._group
+
+    @property
+    def model(self):
+        return self._model
+
+    @property
     def is_valid(self):
-        return self._id is not None and self.guid is not None and self._has_parameters
+        return self._id is not None and self._guid is not None and self._has_parameters
     
     @property
     def raw(self):
-        return self._raw
+        return dict(self._raw) if self._raw else None
     
     @property
     def status_data_mode(self):
@@ -127,7 +144,7 @@ class PanasonicDeviceInfo:
 
     @property
     def mode_avl_list(self):
-        return self._mode_avl_list
+        return dict(self._mode_avl_list) if self._mode_avl_list else None
 
     @property
     def model_version(self):
@@ -303,7 +320,7 @@ class PanasonicDeviceParameters:
 
     @property
     def zones(self):
-        return self._zones
+        return list(self._zones)
     
     def get_zone(self, zone_id: int):
         return self._zone_index[zone_id]
@@ -398,20 +415,17 @@ class PanasonicDeviceParameters:
     def _load_zones(self, json):
         if 'zoneParameters' not in json:
             return
-        has_changed = False
+        has_changed = True  # zones changed if we reach here since we clear them
+        self._zones.clear()
+        self._zone_index.clear()
 
         for zone in json['zoneParameters']:
             if 'zoneId' not in zone:
                 continue
             id = zone['zoneId']
-            if id in self._zone_index:
-                has_changed = self._zone_index[id].load(zone) or has_changed 
-                continue
             self._zone_index[id] = PanasonicDeviceZone(zone)
             self._zones.append(self._zone_index[id])
-            has_changed = True
-        if has_changed:
-           self._has_changed = True
+        self._has_changed = has_changed
         
 
     def _load_temperature(self, json):
@@ -563,7 +577,10 @@ class PanasonicDevice:
         if has_changed:
             self._last_update = datetime.now(timezone.utc)
         if json and 'timestamp' in json:
-            self._timestamp = datetime.fromtimestamp(json['timestamp'] / 1000, timezone.utc)
+            try:
+                self._timestamp = datetime.fromtimestamp(json['timestamp'] / 1000, timezone.utc)
+            except (ValueError, TypeError, OSError) as exc:
+                _LOGGER.warning("Invalid timestamp '%s': %s", json['timestamp'], exc)
         return has_changed
 
 
@@ -846,7 +863,7 @@ class PanasonicDeviceFeatures:
 
     @property
     def mode_avl_list(self):
-        return self._mode_avl_list
+        return dict(self._mode_avl_list) if self._mode_avl_list else None
     @mode_avl_list.setter
     def mode_avl_list(self, value):
         if self._mode_avl_list == value:
@@ -1103,7 +1120,7 @@ class PanasonicDeviceEnergy:
         return has_changed
     
     def _update_consumption(self, value):
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if self._consumption == value:
             if (self._last_consumption_changed is not None 
                 and now - self._last_consumption_changed >= ENERGY_VALUE_TTL):
