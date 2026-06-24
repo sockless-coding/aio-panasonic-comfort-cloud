@@ -19,7 +19,8 @@ class PanasonicRequestHeader:
         api_key = PanasonicRequestHeader._get_api_key(timestamp, settings.access_token)  
         _LOGGER.debug(f"Request Timestamp: {timestamp} key: {api_key}")
         headers={
-                "content-type": "application/json;charset=utf-8",
+                "accept": "application/json; charset=utf-8",
+                "content-type": "application/json",
                 "user-agent": "G-RAC",
                 "x-app-name": "Comfort Cloud",
                 "x-app-timestamp": timestamp,
