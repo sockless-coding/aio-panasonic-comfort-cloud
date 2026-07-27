@@ -85,6 +85,10 @@ class ZoneMode(Enum):
     Off = 0
     On = 1
 
+class InsideCleaningMode(Enum):
+    Off = 0
+    On = 1
+
 class IAutoXMode(Enum):
     Unavailable = 0
     Off = 1

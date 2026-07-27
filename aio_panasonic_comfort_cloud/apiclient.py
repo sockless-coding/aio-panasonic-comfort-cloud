@@ -441,6 +441,16 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
                 "ecoFunctionData": new_value.value
             })
 
+    async def set_inside_cleaning(self, device: PanasonicDevice, new_value: str | constants.InsideCleaningMode):
+        """Set inside cleaning mode"""
+        if isinstance(new_value, str):
+            new_value = constants.InsideCleaningMode[new_value]
+        await self.set_device_raw(
+            device,
+            {
+                "insideCleaning": new_value.value
+            })
+
     async def set_device_raw(self, device:PanasonicDevice, parameters):
         """ Set parameters of device"""
         payload = {
