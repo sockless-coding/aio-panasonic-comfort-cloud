@@ -55,6 +55,7 @@ class PanasonicDeviceInfo:
     def load(self, json) -> bool:
         if not json:
             return False
+        _LOGGER.debug("Loading device info: %s", json)
         if 'deviceHashGuid' in json:
             self._id = json['deviceHashGuid']
         else:
@@ -559,6 +560,20 @@ class PanasonicDevice:
                 return i == 0 or temp == 10
         return False
 
+    @property
+    def supported_fan_speeds(self) -> list[constants.FanSpeed]:
+        return list(constants.FanSpeed)
+
+    @property
+    def supported_eco_modes(self) -> list[constants.EcoMode]:
+        modes = [constants.EcoMode.Auto]
+        if self._features is not None:
+            if self._features.powerful_mode:
+                modes.append(constants.EcoMode.Powerful)
+            if self._features.quiet_mode:
+                modes.append(constants.EcoMode.Quiet)
+        return modes
+
     def load(self, json) -> bool:
         has_changed = False
         if not self._features:
@@ -875,7 +890,7 @@ class PanasonicDeviceFeatures:
         if not json:
             return False
         self._has_changed = False
-        if 'permission' in json:
+        _LOGGER.debug("Loading device features: %s", json)
             self.permission = json['permission']
         if 'summerHouse' in json:
             self.summer_house = json['summerHouse']
@@ -1107,6 +1122,7 @@ class PanasonicDeviceEnergy:
         if not json:
             return False
         self._has_changed = False
+        _LOGGER.debug("Loading device energy: %s", json)
         
         if 'heatConsumptionRate' in json and json['heatConsumptionRate'] >= 0:
             self.heating_rate = json['heatConsumptionRate']
