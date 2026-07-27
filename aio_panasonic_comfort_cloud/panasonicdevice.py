@@ -153,6 +153,10 @@ class PanasonicDeviceInfo:
     @property
     def coordinable_flag(self):
         return self._coordinable_flag
+
+    @property
+    def is_hws_device(self) -> bool:
+        return self._model.startswith("HE-") if self._model else False
     
     
     

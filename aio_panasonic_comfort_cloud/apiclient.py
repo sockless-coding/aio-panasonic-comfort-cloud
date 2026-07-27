@@ -271,6 +271,9 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     
     
     async def _get_device_status(self, device_info: PanasonicDeviceInfo):
+        if device_info.is_hws_device:
+            return await self._get_hws_device_status(device_info)
+
         if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
             try:
@@ -284,6 +287,13 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         json_response = await self.execute_get(self._get_device_status_now_url(device_info.guid), "get_status", 200)
         self._cache_devices[device_info.id] -= 1   
         return json_response
+
+    async def _get_hws_device_status(self, device_info: PanasonicDeviceInfo):
+        json_response = await self.execute_get(
+            self._get_aquarea_device_info_url(device_info.guid), "get_hws_status", 200
+        )
+        device_info.status_data_mode = constants.StatusDataMode.LIVE
+        return {**json_response, "parameters": json_response.get("status", {})}
 
     async def get_device(self, device_info: PanasonicDeviceInfo) -> PanasonicDevice:
         json_response = await self._get_device_status(device_info)
@@ -340,6 +350,9 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         return energy.load(todays_item)
     
     async def _async_get_todays_energy(self, device_info: PanasonicDeviceInfo):
+        if device_info.is_hws_device:
+            _LOGGER.debug("Energy data not available for HWS device %s", device_info.guid)
+            return None
         today = datetime.now().strftime("%Y%m%d")
         device_guid = device_info.guid
         if not device_guid:
