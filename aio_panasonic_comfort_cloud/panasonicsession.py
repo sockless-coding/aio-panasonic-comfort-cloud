@@ -94,7 +94,7 @@ class PanasonicSession:
     async def update_app_version(self):
         await self._app_version.refresh()
 
-    async def execute_post(self, url, json_data, function_description, expected_status_code):
+    async def execute_post(self, url, json_data, function_description, expected_status_code, cookies: dict | None = None):
         async with self._request_semaphore:
             await self._ensure_valid_token()
 
@@ -102,7 +102,8 @@ class PanasonicSession:
                 response = await self._client.post(
                     url,
                     json = json_data,
-                    headers = await PanasonicRequestHeader.get(self._settings, self._app_version)
+                    headers = await PanasonicRequestHeader.get(self._settings, self._app_version),
+                    cookies = cookies or {}
                 )
                 if await has_new_version_been_published(response):
                     _LOGGER.info("New version of acc client id has been published")
@@ -110,7 +111,8 @@ class PanasonicSession:
                     response = await self._client.post(
                         url,
                         json = json_data,
-                        headers = await PanasonicRequestHeader.get(self._settings, self._app_version)
+                        headers = await PanasonicRequestHeader.get(self._settings, self._app_version),
+                        cookies = cookies or {}
                     )
             except (aiohttp.client_exceptions.ClientError,
                     aiohttp.http_exceptions.HttpProcessingError,

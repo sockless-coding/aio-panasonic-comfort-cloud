@@ -301,32 +301,29 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
             try:
-                payload = {
-                    "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=1",
-                    "requestMethod": "GET"
-                }
-                json_response = await self.execute_post(
-                    self._get_aquarea_request_url(),
-                    payload,
-                    "get_aquarea_status", 
-                    200)
+                json_response = await self._execute_aquarea_request(device_info.guid, deviceDirect=1)
                 device_info.status_data_mode = constants.StatusDataMode.LIVE
                 return json_response
             except Exception as e:
                 _LOGGER.warning("Failed to get live status for device {} switching to cached data.".format(device_info.guid))
                 device_info.status_data_mode = constants.StatusDataMode.CACHED
                 self._cache_devices[device_info.id] = 10
-        payload = {
-            "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=0",
-            "requestMethod": "GET"
-        }
-        json_response = await self.execute_post(
-            self._get_aquarea_request_url(),
-            payload,
-            "get_aquarea_status", 
-            200)
+        json_response = await self._execute_aquarea_request(device_info.guid, deviceDirect=0)
         self._cache_devices[device_info.id] -= 1
         return json_response
+
+    async def _execute_aquarea_request(self, guid: str, deviceDirect: int = 1):
+        payload = {
+            "apiName": f"/remote/v1/api/devices?gwid={guid}&deviceDirect={deviceDirect}",
+            "requestMethod": "GET"
+        }
+        return await self.execute_post(
+            self._get_aquarea_request_url(),
+            payload,
+            "get_aquarea_status",
+            200,
+            cookies={"accessToken": self._settings.access_token}
+        )
     
     
     async def async_get_energy(self, device_info: PanasonicDeviceInfo) -> PanasonicDeviceEnergy | None:
