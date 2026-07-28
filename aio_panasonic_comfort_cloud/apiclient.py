@@ -272,7 +272,12 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     
     async def _get_device_status(self, device_info: PanasonicDeviceInfo):
         if device_info.is_hws_device:
-            return await self._get_hws_device_status(device_info)
+            _LOGGER.info(
+                "HWS device %s (%s) detected — status endpoint unavailable. "
+                "Use aioaquarea or similar package for HWS support.",
+                device_info.guid, device_info.model
+            )
+            return {"parameters": {}}
 
         if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
@@ -286,23 +291,6 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
                 self._cache_devices[device_info.id] = 10
         json_response = await self.execute_get(self._get_device_status_now_url(device_info.guid), "get_status", 200)
         self._cache_devices[device_info.id] -= 1   
-        return json_response
-
-    async def _get_hws_device_status(self, device_info: PanasonicDeviceInfo):
-        if (device_info.status_data_mode == constants.StatusDataMode.LIVE
-            or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
-            try:
-                json_response = await self.execute_get(
-                    self._get_aquarea_device_info_url(device_info.guid), "get_hws_status", 200
-                )
-                device_info.status_data_mode = constants.StatusDataMode.LIVE
-                return {**json_response, "parameters": json_response.get("status", {})}
-            except Exception as e:
-                _LOGGER.warning("Failed to get live HWS status for device {} switching to cached data.".format(device_info.guid))
-                device_info.status_data_mode = constants.StatusDataMode.CACHED
-                self._cache_devices[device_info.id] = 10
-        json_response = await self.execute_get(self._get_device_status_now_url(device_info.guid), "get_hws_status", 200)
-        self._cache_devices[device_info.id] -= 1
         return json_response
 
     async def get_device(self, device_info: PanasonicDeviceInfo) -> PanasonicDevice:
