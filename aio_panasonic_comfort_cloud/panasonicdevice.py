@@ -101,7 +101,7 @@ class PanasonicDeviceInfo:
 
     @property
     def is_valid(self):
-        return self._id is not None and self._guid is not None
+        return self._id is not None and self._guid is not None and self._has_parameters
     
     @property
     def raw(self):
