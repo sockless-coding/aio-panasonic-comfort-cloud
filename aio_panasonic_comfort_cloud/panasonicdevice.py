@@ -891,6 +891,7 @@ class PanasonicDeviceFeatures:
             return False
         self._has_changed = False
         _LOGGER.debug("Loading device features: %s", json)
+        if 'permission' in json:
             self.permission = json['permission']
         if 'summerHouse' in json:
             self.summer_house = json['summerHouse']
