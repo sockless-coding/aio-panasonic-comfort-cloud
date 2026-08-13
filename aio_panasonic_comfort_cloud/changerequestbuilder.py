@@ -55,6 +55,7 @@ class ChangeRequestBuilder:
         """ Set hvac mode"""
         if isinstance(new_value, str):
             new_value = constants.OperationMode[new_value]
+        self._ensure_powered_on()
         self._request["operationMode"] = new_value.value
         return self
 
@@ -188,3 +189,9 @@ class ChangeRequestBuilder:
             zone_parameters = { "zoneId": zone_id }
             self._request["zoneParameters"].append(zone_parameters)
         return zone_parameters
+
+    def _ensure_powered_on(self) -> None:
+        """ Ensure that the device is powered on"""
+        if self._device.parameters.power == constants.Power.On:
+            return
+        self._request["operate"] = constants.Power.On.value
