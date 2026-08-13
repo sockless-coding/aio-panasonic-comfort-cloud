@@ -385,8 +385,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
 
         await self.set_device_raw(
             device,
-            { 
-                "operate": constants.Power.On,
+            {
                 "airSwingLR": new_value.value,
                 "fanAutoMode": fan_auto.value
             })
@@ -405,8 +404,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
 
         await self.set_device_raw(
             device,
-            { 
-                "operate": constants.Power.On,
+            {
                 "airSwingUD": new_value.value,
                 "fanAutoMode": fan_auto.value
             })
