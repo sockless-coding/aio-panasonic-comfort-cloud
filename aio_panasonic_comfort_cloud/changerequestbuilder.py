@@ -24,7 +24,6 @@ class ChangeRequestBuilder:
         """ Set eco mode """
         if isinstance(new_value, str):
             new_value = constants.EcoMode[new_value]
-        self._ensure_powered_on()
         self._request["ecoMode"] = new_value.value
         return self
 
@@ -34,7 +33,6 @@ class ChangeRequestBuilder:
     
     def set_target_temperature(self, new_value: int):
         """ Set target temperature """
-        self._ensure_powered_on()
         self._request["temperatureSet"] = new_value
         return self
     
@@ -57,7 +55,6 @@ class ChangeRequestBuilder:
         """ Set hvac mode"""
         if isinstance(new_value, str):
             new_value = constants.OperationMode[new_value]
-        self._ensure_powered_on()
         self._request["operationMode"] = new_value.value
         return self
 
@@ -80,7 +77,6 @@ class ChangeRequestBuilder:
             fan_auto = (constants.AirSwingAutoMode.Both 
                         if new_value == constants.AirSwingLR.Auto 
                         else constants.AirSwingAutoMode.AirSwingUD)
-        self._ensure_powered_on()
         if new_value != constants.AirSwingLR.Auto:
             self._request["airSwingLR"] = new_value.value
         self._request["fanAutoMode"] = fan_auto.value
@@ -105,7 +101,6 @@ class ChangeRequestBuilder:
             fan_auto = (constants.AirSwingAutoMode.Both 
                         if new_value == constants.AirSwingUD.Auto 
                         else constants.AirSwingAutoMode.AirSwingLR)
-        self._ensure_powered_on()
         if new_value != constants.AirSwingUD.Auto:
             self._request["airSwingUD"] = new_value.value
         self._request["fanAutoMode"] = fan_auto.value
@@ -193,12 +188,3 @@ class ChangeRequestBuilder:
             zone_parameters = { "zoneId": zone_id }
             self._request["zoneParameters"].append(zone_parameters)
         return zone_parameters
-    
-    def _ensure_powered_on(self) -> None:
-        """ Ensure that the device is powered on"""
-        if self._device.parameters.power == constants.Power.On:
-            return
-        self._request["operate"] = constants.Power.On.value
-        
-
-    
