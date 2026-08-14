@@ -142,6 +142,34 @@ await client.set_aquarea_quiet_mode(device_info, constants.AquareaQuietMode.Leve
 await client.set_aquarea_force_dhw(device_info, constants.AquareaForceDHW.On)
 ```
 
+## Terms / Privacy Policy Agreements
+
+Panasonic occasionally updates its Terms of Use, Privacy Policy or Cookie
+Policy; when that happens, API calls start failing with error code `4103`
+until the account re-accepts them. You can fetch and handle this yourself:
+
+```python
+# Fetch the current documents (set include_content=True to get the full text)
+documents = await client.get_agreement_documents(include_content=True)
+for doc in documents:
+    print(doc["type"], doc["version"], doc.get("content", "")[:80])
+
+# See what's already been accepted on this account
+accepted = await client.get_agreement_status()
+
+# Auto-accept anything outdated/missing (Terms, Privacy, Cookie Policy —
+# the Turkey-only Service Agreement is intentionally excluded, matching
+# the official app's behavior of only surfacing it to a subset of accounts)
+await client.ensure_all_agreements_accepted()
+```
+
+This isn't called automatically on login — auto-accepting legal agreements
+is a decision your application should make deliberately, not something the
+library does silently. A typical pattern is to catch
+`AgreementNotAcceptedError` from `start_session()`/`_get_groups()` and call
+`ensure_all_agreements_accepted()` (or show the fetched document text to the
+user first) in response.
+
 ## 2FA / MFA Support
 
 If your account has two-factor authentication enabled, pass the OTP code:

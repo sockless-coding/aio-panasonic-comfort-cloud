@@ -6,7 +6,7 @@ import logging
 import aiohttp
 import time
 from datetime import datetime
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 import json
 
 
@@ -141,13 +141,21 @@ class ApiClient(panasonicsession.PanasonicSession):
         self._devices = None
 
     # — Agreement / terms acceptance —
+    #
+    # The app (v4.4.0) exclusively uses the "v2" agreement API below; the v1
+    # endpoints (`check_agreement_status`/`accept_agreement`, hitting
+    # `/auth/agreement/status/{type}`) do not appear anywhere in the current
+    # app and are kept only for backward compatibility — prefer the v2
+    # methods (`get_agreement_documents`/`get_agreement_status`/
+    # `accept_agreements`/`ensure_all_agreements_accepted`).
 
-    AGREEMENT_TYPE_TERMS = 1       # Terms & Conditions
-    AGREEMENT_TYPE_PRIVACY = 2     # Privacy Policy
-    AGREEMENT_TYPE_SERVICE = 3     # Service Agreement (Turkey only)
+    AGREEMENT_TYPE_TERMS = 1           # Terms & Conditions
+    AGREEMENT_TYPE_PRIVACY = 2         # Privacy Policy
+    AGREEMENT_TYPE_SERVICE = 3         # Service Agreement (Turkey only)
+    AGREEMENT_TYPE_COOKIE_POLICY = 4   # Cookie Policy
 
     async def check_agreement_status(self, type_id: int):
-        """Check if an agreement of the given type has been accepted.
+        """[Legacy v1] Check if an agreement of the given type has been accepted.
 
         Args:
             type_id: 1 = Terms & Conditions, 2 = Privacy Policy, 3 = Service Agreement
@@ -163,7 +171,7 @@ class ApiClient(panasonicsession.PanasonicSession):
         return result.get("agreementStatus")
 
     async def accept_agreement(self, type_id: int):
-        """Accept an agreement by sending a PUT request.
+        """[Legacy v1] Accept an agreement by sending a PUT request.
 
         Args:
             type_id: 1 = Terms & Conditions, 2 = Privacy Policy, 3 = Service Agreement
@@ -179,29 +187,105 @@ class ApiClient(panasonicsession.PanasonicSession):
             200
         )
 
-    async def ensure_all_agreements_accepted(self):
-        """Check and auto-accept all pending agreements.
+    async def get_agreement_documents(self, type_id: int | None = None, language: int = 0, include_content: bool = True):
+        """Fetch the current agreement documents (terms, privacy policy, etc.).
 
-        Checks Types 1 (Terms & Conditions) and 2 (Privacy Policy).
-        Type 3 (Service Agreement) is only checked for Turkish users — skipped here.
+        Args:
+            type_id: Restrict to a single agreement type. Omit to fetch all
+                (Terms, Privacy, Turkey Service Agreement, Cookie Policy).
+            language: Language id understood by the API (0 = default/English).
+            include_content: If True, the response includes the full document
+                text in each entry's "content" field.
+
+        Returns:
+            A list of dicts like ``{"type": "1", "version": "...", "content": "..."}``.
+            Note the API returns ``type`` as a string here (unlike
+            :meth:`get_agreement_status`, where it's an int).
+        """
+        result = await self.execute_get(
+            self._get_agreement_documents_url(type_id, language, include_content),
+            "get_agreement_documents",
+            200
+        )
+        return result.get("agreementList", [])
+
+    async def get_agreement_status(self, type_id: int | None = None):
+        """Get the agreement type/version pairs already accepted on this account.
+
+        Args:
+            type_id: Restrict to a single agreement type. Omit to fetch all.
+
+        Returns:
+            A list of dicts like ``{"type": 1, "version": "..."}``. A type
+            missing from the list has never been accepted on this account.
+        """
+        result = await self.execute_get(
+            self._get_agreement_status_v2_url(type_id),
+            "get_agreement_status",
+            200
+        )
+        return result.get("agreementList", [])
+
+    async def accept_agreements(self, agreements: list[dict]):
+        """Accept one or more agreements.
+
+        Args:
+            agreements: A list of ``{"type": int, "version": str}`` — the
+                version should be the latest one reported by
+                :meth:`get_agreement_documents` for that type.
+        """
+        payload = {"agreementList": agreements}
+        await self.execute_put(
+            self._get_agreement_status_v2_url(),
+            payload,
+            "accept_agreements",
+            200
+        )
+
+    async def ensure_all_agreements_accepted(self, language: int = 0):
+        """Fetch the latest agreement documents and accept anything outdated or missing.
+
+        Auto-accepts Terms & Conditions, Privacy Policy and Cookie Policy.
+        The Turkey Service Agreement is intentionally left out — like the
+        official app, it only applies to a subset of accounts and should be
+        a deliberate, user-driven choice rather than an automatic one.
 
         Raises:
-            AgreementNotAcceptedError: If an agreement could not be accepted.
+            AgreementNotAcceptedError: If the outdated/missing agreements
+                could not be accepted.
         """
-        pending = []
-        for type_id in (self.AGREEMENT_TYPE_TERMS, self.AGREEMENT_TYPE_PRIVACY):
-            status = await self.check_agreement_status(type_id)
-            if status != 1:
-                _LOGGER.info("Agreement type %s not accepted (status=%s), attempting to accept", type_id, status)
-                try:
-                    await self.accept_agreement(type_id)
-                    _LOGGER.info("Successfully accepted agreement type %s", type_id)
-                except Exception as ex:
-                    _LOGGER.warning("Failed to auto-accept agreement type %s", type_id, exc_info=ex)
-                    pending.append(type_id)
+        auto_accept_types = {
+            self.AGREEMENT_TYPE_TERMS,
+            self.AGREEMENT_TYPE_PRIVACY,
+            self.AGREEMENT_TYPE_COOKIE_POLICY,
+        }
 
-        if pending:
-            raise AgreementNotAcceptedError(pending)
+        documents = await self.get_agreement_documents(language=language, include_content=False)
+        accepted = await self.get_agreement_status()
+        accepted_versions = {item.get("type"): item.get("version") for item in accepted}
+
+        to_accept = []
+        for document in documents:
+            try:
+                doc_type = int(document.get("type"))
+            except (TypeError, ValueError):
+                continue
+            if doc_type not in auto_accept_types:
+                continue
+            latest_version = document.get("version")
+            if latest_version is None or accepted_versions.get(doc_type) == latest_version:
+                continue
+            to_accept.append({"type": doc_type, "version": latest_version})
+
+        if not to_accept:
+            return
+
+        _LOGGER.info("Accepting updated agreements: %s", to_accept)
+        try:
+            await self.accept_agreements(to_accept)
+        except Exception as ex:
+            _LOGGER.warning("Failed to auto-accept agreements %s", to_accept, exc_info=ex)
+            raise AgreementNotAcceptedError([item["type"] for item in to_accept]) from ex
 
     def get_devices(self):
         if self._devices is None:
@@ -741,7 +825,27 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         return '{base_url}/auth/agreement/status/'.format(
             base_url=constants.BASE_PATH_ACC
         )
-    
+
+    def _get_agreement_documents_url(self, type_id: int | None, language: int, include_content: bool):
+        params = {"language": str(language)}
+        if type_id is not None:
+            params["type"] = str(type_id)
+        params["includeContent"] = "1" if include_content else "0"
+        return '{base_url}/auth/v2/agreement/documents?{query}'.format(
+            base_url=constants.BASE_PATH_ACC,
+            query=urlencode(params)
+        )
+
+    def _get_agreement_status_v2_url(self, type_id: int | None = None):
+        if type_id is None:
+            return '{base_url}/auth/v2/agreement/status'.format(
+                base_url=constants.BASE_PATH_ACC
+            )
+        return '{base_url}/auth/v2/agreement/status?{query}'.format(
+            base_url=constants.BASE_PATH_ACC,
+            query=urlencode({"type": str(type_id)})
+        )
+
     def _prepare_device_guid(self, device_guid: str):
         device_guid = device_guid.replace("/", "f")
         return quote_plus(device_guid, encoding='utf-8')
