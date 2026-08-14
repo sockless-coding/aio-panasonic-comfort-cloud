@@ -31,6 +31,6 @@ class AgreementNotAcceptedError(Error):
 
     def __init__(self, pending_types: list[int] | None = None):
         self.pending_types = pending_types or []
-        type_names = {1: "Terms & Conditions", 2: "Privacy Policy", 3: "Service Agreement"}
+        type_names = {1: "Terms & Conditions", 2: "Privacy Policy", 3: "Service Agreement", 4: "Cookie Policy"}
         names = [type_names.get(t, f"Type {t}") for t in self.pending_types]
         super().__init__(f"The following agreements need acceptance: {', '.join(names)}")
