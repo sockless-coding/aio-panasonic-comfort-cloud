@@ -102,7 +102,24 @@ class PanasonicDeviceInfo:
     @property
     def is_valid(self):
         return self._id is not None and self._guid is not None and self._has_parameters
-    
+
+    @property
+    def is_aquarea(self):
+        """True if this device is an Aquarea (Air to Water heat pump) unit.
+
+        Aquarea devices are listed alongside air conditioners in the group
+        response, but expose ``tankStatus``/``zoneStatus`` at the top level
+        instead of a nested ``parameters`` object, so ``is_valid`` is False
+        for them.
+        """
+        if self._id is None or self._guid is None or self._has_parameters:
+            return False
+        if self._device_type == constants.AQUAREA_DEVICE_TYPE:
+            return True
+        if not self._raw:
+            return False
+        return 'tankStatus' in self._raw or 'zoneStatus' in self._raw
+
     @property
     def raw(self):
         return dict(self._raw) if self._raw else None

@@ -6,12 +6,18 @@ from .apiclient import ApiClient
 from .ccappversion import CCAppVersion
 from .changerequestbuilder import ChangeRequestBuilder
 from .panasonicdevice import (
-    PanasonicDeviceInfo, 
-    PanasonicDevice, 
-    PanasonicDeviceFeatures, 
-    PanasonicDeviceParameters, 
-    PanasonicDeviceZone, 
+    PanasonicDeviceInfo,
+    PanasonicDevice,
+    PanasonicDeviceFeatures,
+    PanasonicDeviceParameters,
+    PanasonicDeviceZone,
     PanasonicDeviceEnergy)
+from .aquareadevice import AquareaDevice
+from .models.aquarea import (
+    AquareaDeviceParameters,
+    AquareaTankStatus,
+    AquareaZoneStatus,
+)
 from .panasonicsession import PanasonicSession
 from .panasonicsettings import PanasonicSettings
 

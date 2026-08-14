@@ -103,6 +103,45 @@ today = date.today().strftime("%Y%m%d")
 history = await client.history(device_info.id, constants.DataMode.Day, today)
 ```
 
+## Aquarea (Air to Water heat pump) Support
+
+Aquarea units show up in the same account/group listing as air conditioners,
+but expose a different status shape (hot water tank + heating/cooling zones
+instead of a single `parameters` object), so they're kept separate from
+`get_devices()`:
+
+```python
+devices = client.get_devices()          # air conditioners
+aquarea_devices = client.aquarea_devices  # Aquarea heat pumps
+
+for device_info in aquarea_devices:
+    device = await client.get_aquarea_device(device_info)
+    params = device.parameters
+
+    print(f"{device_info.name}: {params.operation_status.name} / {params.operation_mode.name}")
+    if params.has_tank:
+        print(f"  Tank: {params.tank.temperature}°C -> {params.tank.heat_set}°C")
+    for zone in params.zones:
+        print(f"  Zone {zone.id} ({zone.name}): {zone.temperature}°C -> {zone.heat_set}°C")
+
+    # Refresh status in place
+    await client.try_update_aquarea_device(device)
+```
+
+Controlling a unit:
+
+```python
+from aio_panasonic_comfort_cloud import constants
+
+await client.set_aquarea_operation_status(device_info, constants.AquareaOperationStatus.On)
+await client.set_aquarea_operation_mode(device_info, constants.AquareaUpdateOperationMode.Heat)
+await client.set_aquarea_tank_temperature(device_info, 55)
+await client.set_aquarea_tank_operation_status(device_info, constants.AquareaOperationStatus.On)
+await client.set_aquarea_zone_temperature(device_info, zone_id=1, temperature=22, mode="heat")
+await client.set_aquarea_quiet_mode(device_info, constants.AquareaQuietMode.Level1)
+await client.set_aquarea_force_dhw(device_info, constants.AquareaForceDHW.On)
+```
+
 ## 2FA / MFA Support
 
 If your account has two-factor authentication enabled, pass the OTP code:
