@@ -14,7 +14,7 @@ from . import constants, testdata
 from . import panasonicsession
 from .exceptions import AgreementNotAcceptedError, ResponseError
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
-from .models import AquareaStatusResponse
+from .aquareadevice import AquareaDevice
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ class ApiClient(panasonicsession.PanasonicSession):
 
         self._groups = None
         self._devices: list[PanasonicDeviceInfo] | None = None
+        self._aquarea_devices: list[PanasonicDeviceInfo] = []
         self._unknown_devices: list[PanasonicDeviceInfo] = []
         self._cache_devices = {}
 
@@ -79,10 +80,19 @@ class ApiClient(panasonicsession.PanasonicSession):
     @property
     def unknown_devices(self):
         return self._unknown_devices
-    
+
     @property
     def has_unknown_devices(self):
         return len(self._unknown_devices) > 0
+
+    @property
+    def aquarea_devices(self):
+        self.get_devices()
+        return self._aquarea_devices
+
+    @property
+    def has_aquarea_devices(self):
+        return len(self.aquarea_devices) > 0
 
     async def start_session(self, otp_code: str | None = None):
         await super().start_session(otp_code)
@@ -196,6 +206,7 @@ class ApiClient(panasonicsession.PanasonicSession):
     def get_devices(self):
         if self._devices is None:
             self._devices = []
+            self._aquarea_devices = []
             self._unknown_devices = []
             if self._groups is not None and 'groupList' in self._groups:
                 for group in self._groups['groupList']:
@@ -210,6 +221,9 @@ class ApiClient(panasonicsession.PanasonicSession):
                             if device_info.is_valid:
                                 self._device_indexer[device_info.id] = device_info.guid
                                 self._devices.append(device_info)
+                            elif device_info.is_aquarea:
+                                self._device_indexer[device_info.id] = device_info.guid
+                                self._aquarea_devices.append(device_info)
                             else:
                                 self._unknown_devices.append(device_info)
 
@@ -233,7 +247,7 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310
                 try:
                     aqua_device = await self.get_aquarea_device(device)
                     _LOGGER.warning(f"""Got aquarea device info for: {device.guid}:
-{json.dumps(aqua_device)}
+{json.dumps(aqua_device.info.raw)}
 Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310""")
                 except Exception as e:
                     _LOGGER.warning(f"""Failed to get aquarea device info for {device.guid}
@@ -293,10 +307,15 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         json_response = await self._get_device_status(device.info)
         return device.load(json_response)
     
-    async def get_aquarea_device(self, device_info: PanasonicDeviceInfo) -> AquareaStatusResponse:
+    async def get_aquarea_device(self, device_info: PanasonicDeviceInfo) -> AquareaDevice:
         json_response = await self._async_get_aquarea_status(device_info)
-        return AquareaStatusResponse.from_dict(json_response)
-    
+        return AquareaDevice(device_info, json_response)
+
+    async def try_update_aquarea_device(self, device: AquareaDevice) -> bool:
+        json_response = await self._async_get_aquarea_status(device.info)
+        return device.load(json_response)
+
+
     async def _async_get_aquarea_status(self, device_info: PanasonicDeviceInfo):
         if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
@@ -327,8 +346,86 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
             200)
         self._cache_devices[device_info.id] -= 1
         return json_response
-    
-    
+
+    async def _async_set_aquarea(self, device_info: PanasonicDeviceInfo, body_param: dict):
+        """ Send a partial update to an Aquarea device via the common/transfer proxy """
+        payload = {
+            "apiName": "/remote/v1/api/devices",
+            "requestMethod": "POST",
+            "bodyParam": {
+                "gwid": device_info.guid,
+                **body_param
+            }
+        }
+        await self.execute_post(self._get_aquarea_request_url(), payload, "set_aquarea_device", 200)
+
+    async def set_aquarea_operation_status(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
+        """ Turn the whole Aquarea unit on/off """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaOperationStatus[new_value]
+        await self._async_set_aquarea(device_info, {"operationStatus": new_value.value})
+
+    async def set_aquarea_operation_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaUpdateOperationMode):
+        """ Set the Aquarea operation mode (heat/cool/auto/off) """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaUpdateOperationMode[new_value]
+        await self._async_set_aquarea(device_info, {"operationMode": new_value.value})
+
+    async def set_aquarea_quiet_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaQuietMode):
+        """ Set the Aquarea quiet mode level """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaQuietMode[new_value]
+        await self._async_set_aquarea(device_info, {"quietMode": new_value.value})
+
+    async def set_aquarea_force_dhw(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaForceDHW):
+        """ Force domestic hot water production on/off """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaForceDHW[new_value]
+        await self._async_set_aquarea(device_info, {"forceDHW": new_value.value})
+
+    async def set_aquarea_force_heater(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaForceHeater):
+        """ Force the backup heater on/off """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaForceHeater[new_value]
+        await self._async_set_aquarea(device_info, {"forceHeater": new_value.value})
+
+    async def set_aquarea_holiday_timer(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaHolidayTimer):
+        """ Enable/disable the holiday timer """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaHolidayTimer[new_value]
+        await self._async_set_aquarea(device_info, {"holidayTimer": new_value.value})
+
+    async def set_aquarea_powerful_time(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaPowerfulTime):
+        """ Enable powerful mode for the given duration """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaPowerfulTime[new_value]
+        await self._async_set_aquarea(device_info, {"powerful": new_value.value})
+
+    async def request_aquarea_defrost(self, device_info: PanasonicDeviceInfo):
+        """ Request an immediate defrost cycle """
+        await self._async_set_aquarea(device_info, {"forcedefrost": 1})
+
+    async def set_aquarea_tank_temperature(self, device_info: PanasonicDeviceInfo, temperature: int):
+        """ Set the target temperature of the hot water tank """
+        await self._async_set_aquarea(device_info, {"tankStatus": {"heatSet": temperature}})
+
+    async def set_aquarea_tank_operation_status(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
+        """ Turn the hot water tank on/off """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaOperationStatus[new_value]
+        await self._async_set_aquarea(device_info, {"tankStatus": {"operationStatus": new_value.value}})
+
+    async def set_aquarea_zone_temperature(self, device_info: PanasonicDeviceInfo, zone_id: int, temperature: int, mode: str = "heat"):
+        """ Set the target heat/cool temperature of a zone """
+        key = "heatSet" if mode == "heat" else "coolSet"
+        await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, key: temperature}]})
+
+    async def set_aquarea_zone_operation_status(self, device_info: PanasonicDeviceInfo, zone_id: int, new_value: str | constants.AquareaOperationStatus):
+        """ Turn a specific zone on/off """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaOperationStatus[new_value]
+        await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]})
+
     async def async_get_energy(self, device_info: PanasonicDeviceInfo) -> PanasonicDeviceEnergy | None:
         todays_item = await self._async_get_todays_energy(device_info)
         if todays_item is None:

@@ -94,6 +94,86 @@ class StatusDataMode(Enum):
     LIVE = 0
     CACHED = 1
 
+
+# --- Aquarea (Air to Water heat pump) ---
+# Device type "2" in the group listing identifies an Aquarea unit.
+AQUAREA_DEVICE_TYPE = "2"
+
+
+class AquareaOperationStatus(Enum):
+    """Whole-device, tank or zone on/off status."""
+    Off = 0
+    On = 1
+    Unknown = 2
+
+
+class AquareaOperationMode(Enum):
+    """Operation mode as reported in the device status (read-only)."""
+    Off = 0
+    Heat = 1
+    Cool = 2
+    AutoHeat = 3
+    AutoCool = 4
+
+
+class AquareaUpdateOperationMode(Enum):
+    """Operation mode values accepted when changing the mode."""
+    Off = 0
+    Heat = 2
+    Cool = 3
+    Auto = 8
+
+
+class AquareaDeviceModeStatus(Enum):
+    Normal = 0
+    Defrost = 1
+
+
+class AquareaDeviceDirection(Enum):
+    Idle = 0
+    Pump = 1
+    Water = 2
+
+
+class AquareaPumpDuty(Enum):
+    Off = 0
+    On = 1
+
+
+class AquareaQuietMode(Enum):
+    Off = 0
+    Level1 = 1
+    Level2 = 2
+    Level3 = 3
+
+
+class AquareaForceDHW(Enum):
+    Off = 0
+    On = 1
+
+
+class AquareaForceHeater(Enum):
+    Off = 0
+    On = 1
+
+
+class AquareaHolidayTimer(Enum):
+    Off = 0
+    On = 1
+
+
+class AquareaPowerfulTime(Enum):
+    Off = 0
+    On30Min = 1
+    On60Min = 2
+    On90Min = 3
+
+
+class AquareaSpecialStatus(Enum):
+    Eco = 1
+    Comfort = 2
+
+
 INVALID_TEMPERATURE = 126
 
 DEFAULT_X_APP_VERSION = "1.21.0"
