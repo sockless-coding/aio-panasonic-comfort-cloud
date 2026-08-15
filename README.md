@@ -142,6 +142,35 @@ await client.set_aquarea_quiet_mode(device_info, constants.AquareaQuietMode.Leve
 await client.set_aquarea_force_dhw(device_info, constants.AquareaForceDHW.On)
 ```
 
+## HWS (Standalone Heat Pump Hot Water Tank) Support
+
+Some accounts have a standalone hot water heat pump (e.g. an HE-UM40CR),
+distinct from an Aquarea combi unit — it has no heating/cooling zones, just
+a tank. These report `deviceType: "11"` and, confusingly, *do* have a
+`parameters` object like an air conditioner, but with tank-specific fields
+(`tankTemperature`, `hpuOperationStatus`, `operationMode`, `boostMode`)
+instead — and the usual `deviceStatus`/`deviceHistoryData` calls reject them
+with a 403. They're kept separate from `get_devices()`/`aquarea_devices`:
+
+```python
+hws_devices = client.hws_devices
+
+for device_info in hws_devices:
+    device = client.get_hws_device(device_info)  # no network call — built
+                                                   # from the group listing
+    params = device.parameters
+    print(f"{device_info.name}: {params.tank_temperature}°C, boost={params.boost_mode.name}")
+
+    # Refresh (re-fetches /device/group, there's no per-device status call)
+    await client.try_update_hws_device(device)
+```
+
+Reading status this way is confirmed working against a real device. Control
+(`set_hws_tank_temperature`, `set_hws_boost_mode`, `set_hws_operation_status`,
+`set_hws_operation_mode`) targets `/device/a2wInfoUpdate`, reported from a
+Comfort Cloud app capture but **not yet verified against a live account** —
+please open an issue if it doesn't work as-is.
+
 ## Terms / Privacy Policy Agreements
 
 Panasonic occasionally updates its Terms of Use, Privacy Policy or Cookie

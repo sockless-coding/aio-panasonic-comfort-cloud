@@ -18,6 +18,8 @@ from .models.aquarea import (
     AquareaTankStatus,
     AquareaZoneStatus,
 )
+from .hwsdevice import HwsDevice
+from .models.hws import HwsDeviceParameters
 from .panasonicsession import PanasonicSession
 from .panasonicsettings import PanasonicSettings
 

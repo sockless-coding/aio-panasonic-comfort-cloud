@@ -101,6 +101,8 @@ class PanasonicDeviceInfo:
 
     @property
     def is_valid(self):
+        if self._device_type in (constants.AQUAREA_DEVICE_TYPE, constants.HWS_DEVICE_TYPE):
+            return False
         return self._id is not None and self._guid is not None and self._has_parameters
 
     @property
@@ -119,6 +121,24 @@ class PanasonicDeviceInfo:
         if not self._raw:
             return False
         return 'tankStatus' in self._raw or 'zoneStatus' in self._raw
+
+    @property
+    def is_hws(self):
+        """True if this is a standalone Heat Pump Hot Water tank unit
+        (e.g. HE-UM40CR) — deviceType "11".
+
+        These devices *do* have a ``parameters`` object like an air
+        conditioner (so unlike Aquarea, they can't be told apart just by
+        looking at the JSON shape), but its fields are
+        ``tankTemperature``/``hpuOperationStatus``/``operationMode``/
+        ``boostMode`` rather than air conditioner fields, and the
+        ``deviceStatus``/``deviceHistoryData`` endpoints reject them with a
+        403 (error 4300) — only the ``parameters`` already present in the
+        group listing are usable.
+        """
+        if self._id is None or self._guid is None:
+            return False
+        return self._device_type == constants.HWS_DEVICE_TYPE
 
     @property
     def raw(self):

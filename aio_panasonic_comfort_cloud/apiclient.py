@@ -15,6 +15,7 @@ from . import panasonicsession
 from .exceptions import AgreementNotAcceptedError, ResponseError
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
 from .aquareadevice import AquareaDevice
+from .hwsdevice import HwsDevice
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ApiClient(panasonicsession.PanasonicSession):
         self._groups = None
         self._devices: list[PanasonicDeviceInfo] | None = None
         self._aquarea_devices: list[PanasonicDeviceInfo] = []
+        self._hws_devices: list[PanasonicDeviceInfo] = []
         self._unknown_devices: list[PanasonicDeviceInfo] = []
         self._cache_devices = {}
 
@@ -93,6 +95,15 @@ class ApiClient(panasonicsession.PanasonicSession):
     @property
     def has_aquarea_devices(self):
         return len(self.aquarea_devices) > 0
+
+    @property
+    def hws_devices(self):
+        self.get_devices()
+        return self._hws_devices
+
+    @property
+    def has_hws_devices(self):
+        return len(self.hws_devices) > 0
 
     async def start_session(self, otp_code: str | None = None):
         await super().start_session(otp_code)
@@ -314,6 +325,7 @@ class ApiClient(panasonicsession.PanasonicSession):
         if self._devices is None:
             self._devices = []
             self._aquarea_devices = []
+            self._hws_devices = []
             self._unknown_devices = []
             if self._groups is not None and 'groupList' in self._groups:
                 for group in self._groups['groupList']:
@@ -331,6 +343,9 @@ class ApiClient(panasonicsession.PanasonicSession):
                             elif device_info.is_aquarea:
                                 self._device_indexer[device_info.id] = device_info.guid
                                 self._aquarea_devices.append(device_info)
+                            elif device_info.is_hws:
+                                self._device_indexer[device_info.id] = device_info.guid
+                                self._hws_devices.append(device_info)
                             else:
                                 self._unknown_devices.append(device_info)
 
@@ -532,6 +547,72 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         if isinstance(new_value, str):
             new_value = constants.AquareaOperationStatus[new_value]
         await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]})
+
+    def get_hws_device(self, device_info: PanasonicDeviceInfo) -> HwsDevice:
+        """Build a standalone Heat Pump Hot Water tank device from the
+        ``/device/group`` snapshot already held by this client.
+
+        Unlike air conditioners and Aquarea, HWS devices (deviceType "11")
+        have no working per-device status endpoint — the AC
+        ``deviceStatus``/``deviceHistoryData`` calls 403 for this device
+        class — so there is nothing to fetch beyond the ``parameters``
+        already returned by ``/device/group``. Call
+        :meth:`try_update_hws_device` to refresh it (re-fetches the group
+        listing).
+        """
+        return HwsDevice(device_info, device_info.raw)
+
+    async def try_update_hws_device(self, device: HwsDevice) -> bool:
+        """Refresh an :class:`HwsDevice` by re-fetching ``/device/group``."""
+        await self._get_groups()
+        raw_device = self._find_raw_device(device.info.guid)
+        if raw_device is None:
+            return False
+        return device.load(raw_device)
+
+    def _find_raw_device(self, guid: str | None):
+        if self._groups is None or 'groupList' not in self._groups:
+            return None
+        for group in self._groups['groupList']:
+            device_list = group.get('deviceList') or group.get('deviceIdList', [])
+            for device in device_list:
+                if device and device.get('deviceGuid') == guid:
+                    return device
+        return None
+
+    async def _async_set_hws(self, device_info: PanasonicDeviceInfo, body: dict):
+        """Send a partial update to an HWS device.
+
+        Unverified / best-effort: this targets ``/device/a2wInfoUpdate``
+        (reported from a real Comfort Cloud app capture, not yet confirmed
+        by us against a live account) rather than a reverse-engineered and
+        tested endpoint like the other ``set_*`` methods in this client.
+        Please report back if this does or doesn't work against a real
+        HWS device.
+        """
+        payload = {"deviceGuid": device_info.guid, **body}
+        await self.execute_post(self._get_hws_update_url(), payload, "set_hws_device", 200)
+
+    async def set_hws_tank_temperature(self, device_info: PanasonicDeviceInfo, temperature: float):
+        """ Set the target temperature of the hot water tank (unverified, see _async_set_hws) """
+        await self._async_set_hws(device_info, {"tankTemperature": temperature})
+
+    async def set_hws_boost_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
+        """ Turn boost mode on/off (unverified, see _async_set_hws) """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaOperationStatus[new_value]
+        await self._async_set_hws(device_info, {"boostMode": new_value.value})
+
+    async def set_hws_operation_status(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
+        """ Turn the heat pump unit on/off (unverified, see _async_set_hws) """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaOperationStatus[new_value]
+        await self._async_set_hws(device_info, {"hpuOperationStatus": new_value.value})
+
+    async def set_hws_operation_mode(self, device_info: PanasonicDeviceInfo, new_value: int):
+        """ Set the raw operation mode value (unverified, see _async_set_hws; the
+        meaning of each mode value hasn't been confirmed against a real device) """
+        await self._async_set_hws(device_info, {"operationMode": new_value})
 
     async def async_get_energy(self, device_info: PanasonicDeviceInfo) -> PanasonicDeviceEnergy | None:
         todays_item = await self._async_get_todays_energy(device_info)
@@ -845,6 +926,11 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     
     def _get_aquarea_request_url(self):
         return '{base_url}/remote/v1/app/common/transfer'.format(
+            base_url=constants.BASE_PATH_ACC
+        )
+
+    def _get_hws_update_url(self):
+        return '{base_url}/device/a2wInfoUpdate'.format(
             base_url=constants.BASE_PATH_ACC
         )
 
