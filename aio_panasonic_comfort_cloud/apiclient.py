@@ -392,6 +392,14 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
     
     
     async def _get_device_status(self, device_info: PanasonicDeviceInfo):
+        if device_info.is_hws_device:
+            _LOGGER.info(
+                "HWS device %s (%s) detected — status endpoint unavailable. "
+                "Use aioaquarea or similar package for HWS support.",
+                device_info.guid, device_info.model
+            )
+            return {"parameters": {}}
+
         if (device_info.status_data_mode == constants.StatusDataMode.LIVE 
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
             try:
@@ -544,6 +552,9 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         return energy.load(todays_item)
     
     async def _async_get_todays_energy(self, device_info: PanasonicDeviceInfo):
+        if device_info.is_hws_device:
+            _LOGGER.debug("Energy data not available for HWS device %s", device_info.guid)
+            return None
         today = datetime.now().strftime("%Y%m%d")
         device_guid = device_info.guid
         if not device_guid:
