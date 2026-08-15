@@ -174,6 +174,18 @@ class AquareaSpecialStatus(Enum):
     Comfort = 2
 
 
+# --- HWS (standalone Heat Pump Hot Water tank, e.g. HE-UM40CR) ---
+# Device type "11" in the group listing identifies a standalone hot-water
+# heat pump unit. Unlike Aquarea combi units (type "2"), these report a flat
+# tankTemperature/hpuOperationStatus/operationMode/boostMode set inside the
+# normal "parameters" object (so they look superficially like an air
+# conditioner), but they don't support the AC deviceStatus/deviceHistoryData
+# endpoints — those 403 for this device class. Confirmed against a real
+# HE-UM40CR device/group response; reported by a user, not yet independently
+# reverse-engineered from the app.
+HWS_DEVICE_TYPE = "11"
+
+
 INVALID_TEMPERATURE = 126
 
 DEFAULT_X_APP_VERSION = "1.21.0"
