@@ -15,6 +15,7 @@ from . import panasonicsession
 from .exceptions import AgreementNotAcceptedError, ResponseError
 from .panasonicdevice import PanasonicDevice, PanasonicDeviceInfo, PanasonicDeviceEnergy
 from .aquareadevice import AquareaDevice
+from .models.aquarea import AquareaConsumption
 from .hwsdevice import HwsDevice
 
 
@@ -547,6 +548,121 @@ Submit this log to https://github.com/sockless-coding/panasonic_cc/issues/310"""
         if isinstance(new_value, str):
             new_value = constants.AquareaOperationStatus[new_value]
         await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]})
+
+    @staticmethod
+    def _clamp(value, min_value, max_value):
+        if value is None:
+            return None
+        if min_value is not None and value < min_value:
+            value = min_value
+        if max_value is not None and value > max_value:
+            value = max_value
+        return value
+
+    @staticmethod
+    def _special_status_modifiers(zone, status: "constants.AquareaSpecialStatus"):
+        if status == constants.AquareaSpecialStatus.Eco:
+            return zone.eco_heat, zone.eco_cool
+        return zone.comfort_heat, zone.comfort_cool
+
+    def _calculate_zone_special_status_setpoints(self, zone, current_status, new_status):
+        """ Undo `current_status`'s offset (if any) then apply `new_status`'s
+        offset (if any) to the zone's heat/cool setpoints, clamped to the
+        zone's min/max range — mirrors how the official app recalculates
+        setpoints when switching Eco/Comfort special status. """
+        heat_set = zone.heat_set
+        cool_set = zone.cool_set
+        if current_status is not None:
+            heat_modifier, cool_modifier = self._special_status_modifiers(zone, current_status)
+            if heat_set is not None and heat_modifier is not None:
+                heat_set = self._clamp(heat_set - heat_modifier, zone.heat_min, zone.heat_max)
+            if cool_set is not None and cool_modifier is not None:
+                cool_set = self._clamp(cool_set - cool_modifier, zone.cool_min, zone.cool_max)
+        if new_status is not None:
+            heat_modifier, cool_modifier = self._special_status_modifiers(zone, new_status)
+            if heat_set is not None and heat_modifier is not None:
+                heat_set = self._clamp(heat_set + heat_modifier, zone.heat_min, zone.heat_max)
+            if cool_set is not None and cool_modifier is not None:
+                cool_set = self._clamp(cool_set + cool_modifier, zone.cool_min, zone.cool_max)
+        return heat_set, cool_set
+
+    async def set_aquarea_special_status(self, device: AquareaDevice, new_value: str | constants.AquareaSpecialStatus | None):
+        """ Enable/disable Eco or Comfort special status.
+
+        Eco/Comfort aren't just a flag — Aquarea applies a per-zone
+        temperature offset (``zone.eco_heat``/``eco_cool`` or
+        ``zone.comfort_heat``/``comfort_cool``) on top of each zone's
+        current heat/cool setpoint, and reverts it when switched off or
+        away. This recalculates each zone's adjusted setpoint from
+        `device`'s currently loaded parameters and sends it together with
+        the new specialStatus in one call, mirroring the app's behavior —
+        which is why this takes the full AquareaDevice (not just its
+        PanasonicDeviceInfo, like the other set_aquarea_* methods): it needs
+        the current setpoints/status to compute the offset. Make sure
+        `device` was refreshed recently (get_aquarea_device()/
+        try_update_aquarea_device()) before calling this.
+
+        Unverified / best-effort: the aioaquarea reference implementation
+        posts this via a different, legacy cookie-based endpoint instead of
+        the common/transfer proxy used for everything else in this client.
+        This method instead follows the same transfer-proxy pattern as the
+        other set_aquarea_* methods for consistency with what we've
+        confirmed works — please report back if it doesn't.
+        """
+        if isinstance(new_value, str):
+            new_value = constants.AquareaSpecialStatus[new_value]
+        current_status = device.parameters.special_status
+
+        zone_updates = []
+        for zone in device.parameters.zones:
+            heat_set, cool_set = self._calculate_zone_special_status_setpoints(zone, current_status, new_value)
+            zone_update = {"zoneId": zone.id}
+            if heat_set is not None:
+                zone_update["heatSet"] = heat_set
+            if cool_set is not None:
+                zone_update["coolSet"] = cool_set
+            zone_updates.append(zone_update)
+
+        body: dict = {"specialStatus": new_value.value if new_value else 0}
+        if zone_updates:
+            body["zoneStatus"] = zone_updates
+        await self._async_set_aquarea(device.info, body)
+
+    async def async_get_aquarea_consumption(self, device_info: PanasonicDeviceInfo, data_mode: str | constants.AquareaDataMode, date: str) -> list[AquareaConsumption]:
+        """ Get Aquarea energy consumption/cost history, broken down by heat/cool/tank.
+
+        Unlike air conditioners (which use deviceHistoryData), Aquarea has
+        its own /remote/v1/api/consumption endpoint, reached through the
+        same common/transfer proxy used for status/control.
+
+        Args:
+            device_info: The Aquarea device.
+            data_mode: AquareaDataMode.Day/Month/Year (or the matching
+                string name) — NOT the AC-only DataMode enum, which has
+                different values and an extra "Week" granularity Aquarea
+                doesn't have.
+            date: Date string in the format the API expects (e.g.
+                "YYYYMMDD"), matching what history()/DataMode use elsewhere
+                in this client.
+
+        Returns:
+            A list of AquareaConsumption entries.
+        """
+        if isinstance(data_mode, str):
+            data_mode = constants.AquareaDataMode[data_mode]
+        payload = {
+            "apiName": "/remote/v1/api/consumption",
+            "requestMethod": "POST",
+            "bodyParam": {
+                "gwid": device_info.guid,
+                "dataMode": data_mode.value,
+                "date": date,
+                "osTimezone": get_current_time_zone()
+            }
+        }
+        json_response = await self.execute_post(self._get_aquarea_request_url(), payload, "get_aquarea_consumption", 200)
+        history_items = json_response.get("historyDataList") or []
+        return [AquareaConsumption(item) for item in history_items]
 
     def get_hws_device(self, device_info: PanasonicDeviceInfo) -> HwsDevice:
         """Build a standalone Heat Pump Hot Water tank device from the

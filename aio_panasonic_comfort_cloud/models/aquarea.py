@@ -445,4 +445,72 @@ class AquareaDeviceParameters:
             zone = AquareaZoneStatus(zone_json)
             self._zone_index[zone_id] = zone
             self._zones.append(zone)
+
+
+class AquareaConsumption:
+    """One entry of Aquarea energy consumption/cost history, broken down by
+    heat/cool/hot-water-tank, as returned by the ``/remote/v1/api/consumption``
+    endpoint (see :meth:`ApiClient.async_get_aquarea_consumption`).
+    """
+
+    def __init__(self, json=None) -> None:
+        self._heat_consumption: float | None = None
+        self._cool_consumption: float | None = None
+        self._tank_consumption: float | None = None
+        self._heat_cost: float | None = None
+        self._cool_cost: float | None = None
+        self._tank_cost: float | None = None
+        self._data_time: str | None = None
+        self._outdoor_temp: float | None = None
+        self.load(json)
+
+    @property
+    def heat_consumption(self):
+        return self._heat_consumption
+
+    @property
+    def cool_consumption(self):
+        return self._cool_consumption
+
+    @property
+    def tank_consumption(self):
+        return self._tank_consumption
+
+    @property
+    def heat_cost(self):
+        return self._heat_cost
+
+    @property
+    def cool_cost(self):
+        return self._cool_cost
+
+    @property
+    def tank_cost(self):
+        return self._tank_cost
+
+    @property
+    def data_time(self):
+        return self._data_time
+
+    @property
+    def outdoor_temp(self):
+        return self._outdoor_temp
+
+    @property
+    def total_consumption(self):
+        values = [v for v in (self._heat_consumption, self._cool_consumption, self._tank_consumption) if v is not None]
+        return sum(values) if values else None
+
+    def load(self, json) -> bool:
+        if not json:
+            return False
+        self._heat_consumption = read_value(json, 'heatConsumption', self._heat_consumption)
+        self._cool_consumption = read_value(json, 'coolConsumption', self._cool_consumption)
+        self._tank_consumption = read_value(json, 'tankConsumption', self._tank_consumption)
+        self._heat_cost = read_value(json, 'heatCost', self._heat_cost)
+        self._cool_cost = read_value(json, 'coolCost', self._cool_cost)
+        self._tank_cost = read_value(json, 'tankCost', self._tank_cost)
+        self._data_time = read_value(json, 'dataTime', self._data_time)
+        self._outdoor_temp = read_value(json, 'outdoorTemp', self._outdoor_temp)
+        return True
         self._has_changed = True
