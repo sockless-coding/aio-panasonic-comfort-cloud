@@ -143,6 +143,17 @@ class ChangeRequestBuilder:
             new_value = constants.EcoFunctionMode[new_value]
         self._request["ecoFunctionData"] = new_value.value
         return self
+
+    @property
+    def inside_cleaning_mode(self) -> constants.InsideCleaningMode | None:
+        return constants.InsideCleaningMode(self._request["insideCleaning"]) if "insideCleaning" in self._request else None
+
+    def set_inside_cleaning_mode(self, new_value: str | constants.InsideCleaningMode):
+        """ Set inside cleaning mode"""
+        if isinstance(new_value, str):
+            new_value = constants.InsideCleaningMode[new_value]
+        self._request["insideCleaning"] = new_value.value
+        return self
     
     @property
     def power_mode(self) -> constants.Power | None:

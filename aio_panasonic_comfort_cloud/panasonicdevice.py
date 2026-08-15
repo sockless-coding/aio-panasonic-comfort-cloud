@@ -536,6 +536,12 @@ class PanasonicDevice:
         if self._parameters is None:
             return False
         return len(self._parameters.zones) > 0
+
+    @property
+    def has_inside_cleaning(self) -> bool:
+        if self._features is None:
+            return False
+        return self._features.inside_cleaning
     
     @property
     def has_horizontal_swing(self):
