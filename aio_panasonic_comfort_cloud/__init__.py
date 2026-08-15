@@ -17,6 +17,7 @@ from .models.aquarea import (
     AquareaDeviceParameters,
     AquareaTankStatus,
     AquareaZoneStatus,
+    AquareaConsumption,
 )
 from .hwsdevice import HwsDevice
 from .models.hws import HwsDeviceParameters

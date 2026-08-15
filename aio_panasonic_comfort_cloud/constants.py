@@ -178,6 +178,19 @@ class AquareaSpecialStatus(Enum):
     Comfort = 2
 
 
+class AquareaDataMode(Enum):
+    """dataMode values for the Aquarea /remote/v1/api/consumption endpoint.
+
+    Distinct from — and NOT interchangeable with — the AC-only ``DataMode``
+    enum used by ``deviceHistoryData`` (which has different values, e.g.
+    ``Week`` and a different Year encoding). Aquarea's consumption endpoint
+    has no "Week" granularity.
+    """
+    Day = 0
+    Month = 1
+    Year = 2
+
+
 # --- HWS (standalone Heat Pump Hot Water tank, e.g. HE-UM40CR) ---
 # Device type "11" in the group listing identifies a standalone hot-water
 # heat pump unit. Unlike Aquarea combi units (type "2"), these report a flat

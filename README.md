@@ -142,6 +142,36 @@ await client.set_aquarea_quiet_mode(device_info, constants.AquareaQuietMode.Leve
 await client.set_aquarea_force_dhw(device_info, constants.AquareaForceDHW.On)
 ```
 
+Eco/Comfort "special status" applies a per-zone temperature offset on top of
+the current setpoint rather than being a simple flag, so setting it needs
+the full `AquareaDevice` (not just its `PanasonicDeviceInfo`) to know the
+current setpoints/status to offset from:
+
+```python
+device = await client.get_aquarea_device(device_info)
+await client.set_aquarea_special_status(device, constants.AquareaSpecialStatus.Eco)
+# ... or constants.AquareaSpecialStatus.Comfort, or None to turn it off
+```
+
+Energy consumption/cost history (heat/cool/tank breakdown) uses a separate
+endpoint from air conditioners, with its own `AquareaDataMode` (Day/Month/Year
+— no "Week", and different values from the AC-only `DataMode`):
+
+```python
+from datetime import date
+
+today = date.today().strftime("%Y%m%d")
+consumption = await client.async_get_aquarea_consumption(
+    device_info, constants.AquareaDataMode.Day, today
+)
+for entry in consumption:
+    print(f"{entry.data_time}: heat={entry.heat_consumption}kWh cool={entry.cool_consumption}kWh "
+          f"tank={entry.tank_consumption}kWh total={entry.total_consumption}kWh")
+```
+
+`set_aquarea_special_status` is unverified/best-effort like the HWS control
+methods above — see its docstring for why.
+
 ## HWS (Standalone Heat Pump Hot Water Tank) Support
 
 Some accounts have a standalone hot water heat pump (e.g. an HE-UM40CR),
