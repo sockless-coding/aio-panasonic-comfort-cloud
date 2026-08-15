@@ -8,7 +8,7 @@ import os
 import aiohttp
 
 from aio_panasonic_comfort_cloud import ApiClient, constants
-from aio_panasonic_comfort_cloud.exceptions import AgreementNotAcceptedError
+from aio_panasonic_comfort_cloud.exceptions import AgreementNotAcceptedError, MFARequiredError
 
 
 def parse_args():
@@ -32,10 +32,19 @@ def parse_args():
         action="store_true",
         help="Only check and accept pending agreements, then exit (no device operations).",
     )
+    parser.add_argument(
+        "--oauth",
+        action="store_true",
+        help="Authenticate via a browser-based OAuth flow instead of "
+             "username/password. You'll be given a URL to open in any "
+             "browser (Auth0's own hosted page handles login, MFA, etc.) "
+             "and asked to paste back the resulting redirect URL. "
+             "Username/password are not required with this option.",
+    )
     return parser.parse_args()
 
 
-async def main(username: str, password: str, agreements_only: bool = False):
+async def main(username: str, password: str, agreements_only: bool = False, use_oauth: bool = False):
     # Configure logging
     logging.basicConfig(level=logging.INFO)
 
@@ -43,10 +52,30 @@ async def main(username: str, password: str, agreements_only: bool = False):
         client = ApiClient(username, password, session)
 
         try:
-            # Start the session (authenticate and fetch devices)
-            # If 2FA is enabled, you may need to provide an OTP code:
-            # await client.start_session(otp_code="123456")
-            await client.start_session()
+            if use_oauth:
+                # Alternative to start_session(): authenticate in a real
+                # browser instead of this library's own credential-scraping
+                # login flow. See README.md "Alternative: Browser-Based
+                # Authentication" for details.
+                auth_url, code_verifier = client.get_browser_authorization_url()
+                print("Open this URL in a browser and log in:")
+                print(f"  {auth_url}")
+                redirect_url = input(
+                    "\nAfter logging in, paste the resulting redirect URL "
+                    "(starts with 'panasonic-iot-cfc://'): "
+                ).strip()
+                await client.complete_browser_authentication(redirect_url, code_verifier)
+            else:
+                # Start the session (authenticate and fetch devices).
+                # If the account has 2FA/MFA enabled, start_session() raises
+                # MFARequiredError instead of failing with a confusing remote
+                # error — catch it, prompt the user for the OTP code from their
+                # authenticator app, and retry with it.
+                try:
+                    await client.start_session()
+                except MFARequiredError:
+                    otp_code = input("Enter the 2FA/OTP code from your authenticator app: ").strip()
+                    await client.start_session(otp_code=otp_code)
 
             # --- Agreement / terms acceptance check ---
             if agreements_only:
@@ -127,16 +156,22 @@ async def main(username: str, password: str, agreements_only: bool = False):
                     print(f"    {history}")
 
         finally:
-            # Clean up the session
-            await client.stop_session()
+            # Clean up the session (best-effort — if authentication never
+            # completed, e.g. the OAuth prompt was aborted, there's no
+            # session to stop and stop_session() would otherwise raise a
+            # second, unrelated error that masks the real one above)
+            try:
+                await client.stop_session()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    if not args.username or not args.password:
-        print("Error: username and password are required.")
+    if not args.oauth and (not args.username or not args.password):
+        print("Error: username and password are required (or pass --oauth to authenticate via browser instead).")
         print("Pass them as arguments (-u / -p) or set PANASONIC_USERNAME / PANASONIC_PASSWORD env vars.")
         raise SystemExit(1)
 
-    asyncio.run(main(args.username, args.password, agreements_only=args.agreements_only))
+    asyncio.run(main(args.username, args.password, agreements_only=args.agreements_only, use_oauth=args.oauth))

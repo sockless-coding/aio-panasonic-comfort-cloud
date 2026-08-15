@@ -5,6 +5,7 @@ import logging
 import random
 import string
 import urllib
+import urllib.parse
 import datetime
 import time
 import json
@@ -33,10 +34,11 @@ def get_querystring_parameter_from_header_entry_url(response: aiohttp.ClientResp
 
 
 def get_querystring_parameter_from_url(url: str, querystring_parameter: str):
-    """Extract a query parameter from a URL string."""
+    """Extract a query parameter from a plain URL string."""
     parsed_url = urllib.parse.urlparse(url)
     params = urllib.parse.parse_qs(parsed_url.query)
     return params.get(querystring_parameter, [None])[0]
+
 
 class PanasonicAuthentication:
 
@@ -75,31 +77,33 @@ class PanasonicAuthentication:
         if authorization_redirect.startswith(REDIRECT_URI):
             code = get_querystring_parameter_from_header_entry_url(
                 authorization_response, 'Location', 'code')
+            await self._request_new_token(code, code_verifier)
         else:
             try:
                 code = await self._login(authorization_response, username, password)
-            except exceptions.MFARequiredError as e:
+                await self._request_new_token(code, code_verifier)
+            except exceptions.MFARequiredError:
                 if otp_code is None:
                     raise
                 _LOGGER.debug("MFA required and OTP code provided, verifying")
-                # Verify the MFA code and get the authorization code
-                mfa_result = await self.verify_mfa(otp_code)
-                if isinstance(mfa_result, str):
-                    code = mfa_result
-                else:
-                    raise exceptions.ResponseError("MFA verification did not return an authorization code")
-        
-        await self._request_new_token(code, code_verifier)
+                # The MFA/OTP exchange below is a token grant, not an
+                # authorization code — it sets the token directly rather
+                # than going through _request_new_token().
+                await self.verify_mfa(otp_code)
+
         await self._retrieve_client_acc()
 
     async def verify_mfa(self, otp_code: str):
-        """Verify the MFA/2FA OTP code after a login attempt triggered 2FA.
+        """Complete a pending MFA/2FA challenge using Auth0's MFA API.
+
+        This tenant (authglb.digital.panasonic.com) exposes the standard
+        Auth0 MFA OOB/OTP API (see its /.well-known/openid-configuration,
+        which advertises a "mfa_challenge_endpoint" and the
+        "http://auth0.com/oauth/grant-type/mfa-otp" grant type) — unlike the
+        rest of the login flow, this part isn't scraped from an HTML page.
 
         Args:
             otp_code: The one-time password from the user's authenticator app.
-
-        Returns:
-            True if verification succeeded and authentication is complete.
 
         Raises:
             MFARequiredError: If no pending MFA challenge exists (call authenticate first).
@@ -107,75 +111,56 @@ class PanasonicAuthentication:
         if not self._mfa_token:
             raise exceptions.MFARequiredError("No pending MFA challenge. Call authenticate() first.")
 
-        # Reset state so a retry is possible
         mfa_token = self._mfa_token
-        parameters = dict(self._mfa_parameters)
         self._mfa_token = None
         self._mfa_parameters = {}
 
+        # Best-effort challenge negotiation. Auth0 recommends calling this
+        # before submitting the code, but plain TOTP/authenticator-app
+        # enrollments generally don't require it, so a failure here isn't
+        # treated as fatal — we still try the token exchange below.
+        try:
+            challenge_response = await self._client.post(
+                f'{BASE_PATH_AUTH}/mfa/challenge',
+                headers={
+                    "Auth0-Client": AUTH_0_CLIENT,
+                    "user-agent": AUTH_API_USER_AGENT,
+                },
+                json={
+                    "mfa_token": mfa_token,
+                    "client_id": APP_CLIENT_ID,
+                    "challenge_type": "otp",
+                },
+                allow_redirects=False)
+            _LOGGER.debug("MFA challenge response, %s", json.dumps({
+                'status': challenge_response.status,
+                'body': await challenge_response.text()
+            }))
+        except Exception as ex:
+            _LOGGER.debug("MFA challenge request failed, continuing with OTP exchange anyway", exc_info=ex)
+
+        now = datetime.datetime.now()
+        unix_time_token_received = time.mktime(now.timetuple())
+
         _LOGGER.debug("Submitting MFA verification with OTP code")
         response = await self._client.post(
-            f'{BASE_PATH_AUTH}/u2f/mfa/verify',
+            f'{BASE_PATH_AUTH}/oauth/token',
             headers={
                 "Auth0-Client": AUTH_0_CLIENT,
                 "user-agent": AUTH_API_USER_AGENT,
             },
             json={
+                "grant_type": "http://auth0.com/oauth/grant-type/mfa-otp",
+                "client_id": APP_CLIENT_ID,
                 "mfa_token": mfa_token,
-                "mfa_type": "otp",
-                "code": otp_code,
-                **parameters,
+                "otp": otp_code,
             },
             allow_redirects=False)
         await check_response(response, 'verify_mfa', 200)
 
-        # After successful MFA verification we need to continue the flow
-        # The response should redirect us back to the callback
-        response_text = await response.text()
-        _LOGGER.debug("MFA verification response, %s", json.dumps({'html': response_text}))
+        token_response = json.loads(await response.text())
+        self._set_token(token_response, unix_time_token_received)
 
-        # Parse hidden form fields from the response (similar to login callback)
-        soup = BeautifulSoup(response_text, "html.parser")
-        input_lines = soup.find_all("input", {"type": "hidden"})
-        for input_line in input_lines:
-            name = input_line.get("name")
-            value = input_line.get("value")
-            if name and value is not None:
-                self._mfa_parameters[name] = value
-
-        # Check if we got a redirect (MFA verified, proceed to callback)
-        if response.status == 200 and 'Location' in response.headers:
-            location = response.headers['Location']
-            _LOGGER.debug("MFA verification redirect, %s", json.dumps({'redirect': location}))
-
-            # Follow the redirect — this should lead to the final auth code
-            follow_response = await self._client.get(
-                f"{BASE_PATH_AUTH}/{location}",
-                allow_redirects=False)
-            await check_response(follow_response, 'mfa_redirect', 302)
-
-            location = follow_response.headers['Location']
-            _LOGGER.debug("MFA redirect result, %s", json.dumps({'redirect': location}))
-
-            # Extract the code from the final redirect
-            if REDIRECT_URI in location:
-                code = get_querystring_parameter_from_url(location, 'code')
-                return code
-            else:
-                # May need another follow
-                follow_response2 = await self._client.get(
-                    f"{BASE_PATH_AUTH}/{location}",
-                    allow_redirects=False)
-
-                if 'Location' in follow_response2.headers:
-                    location2 = follow_response2.headers['Location']
-                    _LOGGER.debug("MFA second redirect, %s", json.dumps({'redirect': location2}))
-                    if REDIRECT_URI in location2:
-                        code = get_querystring_parameter_from_url(location2, 'code')
-                        return code
-
-        raise exceptions.ResponseError("MFA verification did not produce a valid authorization code")
-        
     async def refresh_token(self):
         _LOGGER.debug("Refreshing token")
         # do before, so that timestamp is older rather than newer        
@@ -200,6 +185,21 @@ class PanasonicAuthentication:
         self._set_token(token_response, unix_time_token_received)
 
 
+    @staticmethod
+    def _build_authorize_params(challenge: str, state: str) -> dict:
+        return {
+            "scope": "openid offline_access comfortcloud.control a2w.control",
+            "audience": f"https://digital.panasonic.com/{APP_CLIENT_ID}/api/v1/",
+            "protocol": "oauth2",
+            "response_type": "code",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "auth0Client": AUTH_0_CLIENT,
+            "client_id": APP_CLIENT_ID,
+            "redirect_uri": REDIRECT_URI,
+            "state": state,
+        }
+
     async def _authorize(self, challenge) -> aiohttp.ClientResponse:
         # --------------------------------------------------------------------
         # AUTHORIZE
@@ -212,21 +212,72 @@ class PanasonicAuthentication:
             headers={
                 "user-agent": AUTH_API_USER_AGENT,
             },
-            params={
-                "scope": "openid offline_access comfortcloud.control a2w.control",
-                "audience": f"https://digital.panasonic.com/{APP_CLIENT_ID}/api/v1/",
-                "protocol": "oauth2",
-                "response_type": "code",
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-                "auth0Client": AUTH_0_CLIENT,
-                "client_id": APP_CLIENT_ID,
-                "redirect_uri": REDIRECT_URI,
-                "state": state,
-            },
+            params=self._build_authorize_params(challenge, state),
             allow_redirects=False)
         await check_response(response, 'authorize', 302)
         return response
+
+    # ------------------------------------------------------------------
+    # Alternative flow: authenticate in a real browser
+    # ------------------------------------------------------------------
+    #
+    # The rest of this class drives Panasonic's Auth0 "classic" login page
+    # itself (POSTing credentials, scraping hidden form fields, following
+    # redirects), which is fragile — it has to correctly model whatever
+    # Auth0 renders for every possible connection/enrollment (see the MFA
+    # bug this was built to fix). These two methods are an alternative that
+    # doesn't touch that flow at all: build a standard OAuth2/PKCE
+    # authorization URL, have the *caller* open it in an actual browser (a
+    # WebView, the system browser, etc.) so Auth0's own hosted page handles
+    # login/MFA/social-login natively, then hand the resulting redirect back
+    # here to finish the token exchange with the existing, unchanged
+    # _request_new_token().
+
+    def build_authorization_url(self) -> tuple[str, str]:
+        """Build a URL to open in a real browser to authenticate directly
+        with Panasonic's Auth0 tenant, bypassing this library's own
+        credential-scraping login flow entirely.
+
+        Returns:
+            A ``(authorization_url, code_verifier)`` tuple. Open
+            ``authorization_url`` in any browser/WebView; once the user
+            finishes logging in (including any MFA/social-login step, all
+            handled by Auth0's own page), it will redirect to
+            ``panasonic-iot-cfc://authglb.digital.panasonic.com/android/com.panasonic.ACCsmart/callback?code=...``.
+            Pass that redirect URL (or just the ``code`` value) together
+            with ``code_verifier`` to :meth:`complete_browser_authentication`.
+        """
+        code_verifier = generate_random_string(43)
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(
+                code_verifier.encode('utf-8')
+            ).digest()).split('='.encode('utf-8'))[0].decode('utf-8')
+        state = generate_random_string(20)
+        params = self._build_authorize_params(code_challenge, state)
+        authorization_url = f"{BASE_PATH_AUTH}/authorize?{urllib.parse.urlencode(params)}"
+        _LOGGER.debug("Built browser authorization URL, %s", json.dumps({'url': authorization_url}))
+        return authorization_url, code_verifier
+
+    async def complete_browser_authentication(self, redirect_url_or_code: str, code_verifier: str):
+        """Finish authentication started via :meth:`build_authorization_url`.
+
+        Args:
+            redirect_url_or_code: Either the full URL the browser was
+                redirected to (containing a ``code`` query parameter), or
+                just the bare authorization code extracted from it.
+            code_verifier: The value returned alongside the authorization
+                URL by :meth:`build_authorization_url`.
+        """
+        code = redirect_url_or_code
+        if "://" in redirect_url_or_code or "?" in redirect_url_or_code:
+            code = get_querystring_parameter_from_url(redirect_url_or_code, 'code')
+            if not code:
+                raise exceptions.ResponseError(
+                    f"No 'code' parameter found in the provided redirect URL: {redirect_url_or_code}")
+
+        self._client.cookie_jar.clear_domain('authglb.digital.panasonic.com')
+        await self._request_new_token(code, code_verifier)
+        await self._retrieve_client_acc()
         
         
     async def _login(self, authorization_response: aiohttp.ClientResponse, username, password):
@@ -319,9 +370,43 @@ class PanasonicAuthentication:
         location = response.headers['Location']
         _LOGGER.debug("Callback redirect, %s", json.dumps({'redirect':location, 'html': await response.text()}))
 
-        return get_querystring_parameter_from_header_entry_url(
+        code = get_querystring_parameter_from_header_entry_url(
                 response, 'Location', 'code')
-    
+        if code:
+            return code
+
+        # No authorization code in the final redirect. If we're not already at
+        # the app's redirect URI, this is most likely a step-up/MFA challenge
+        # that wasn't already caught above (Auth0 only surfaces it here for
+        # some connection configurations), so follow it and look for the same
+        # hidden mfa_token field before giving up.
+        _LOGGER.debug("No 'code' parameter in final redirect, checking for a pending MFA challenge at %s", location)
+        if location.startswith(REDIRECT_URI):
+            raise exceptions.ResponseError(
+                f"Login flow finished at the redirect URI without an authorization code (location: {location})")
+
+        challenge_url = location if location.startswith("http") else f"{BASE_PATH_AUTH}/{location}"
+        challenge_response = await self._client.get(challenge_url, allow_redirects=False)
+        challenge_text = await challenge_response.text()
+        _LOGGER.debug("MFA challenge candidate response, %s", json.dumps({'url': challenge_url, 'html': challenge_text}))
+
+        soup = BeautifulSoup(challenge_text, "html.parser")
+        challenge_parameters = {
+            input_line.get("name"): input_line.get("value")
+            for input_line in soup.find_all("input", {"type": "hidden"})
+        }
+        mfa_token = challenge_parameters.get("mfa_token")
+        if mfa_token:
+            _LOGGER.debug("MFA/2FA challenge detected at %s, storing mfa_token for verification", challenge_url)
+            self._mfa_token = mfa_token
+            self._mfa_parameters = {k: v for k, v in challenge_parameters.items() if k != "mfa_token"}
+            raise exceptions.MFARequiredError(mfa_token)
+
+        raise exceptions.ResponseError(
+            "Login flow did not produce an authorization code and no MFA challenge could be "
+            f"detected (ended at: {challenge_url}). Enable debug logging to inspect the response."
+        )
+
     async def _request_new_token(self, code, code_verifier):
         _LOGGER.debug("Requesting a new token")
         # do before, so that timestamp is older rather than newer
@@ -350,10 +435,10 @@ class PanasonicAuthentication:
         
     def _set_token(self, token_response, unix_time_token_received):
         self._settings.set_token(
-            token_response["access_token"], 
-            token_response["refresh_token"],
+            token_response["access_token"],
+            token_response.get("refresh_token"),
             unix_time_token_received + token_response["expires_in"],
-            token_response["scope"])
+            token_response.get("scope"))
         
     async def _retrieve_client_acc(self):
         # ------------------------------------------------------------------
