@@ -117,7 +117,30 @@ class ApiClient(panasonicsession.PanasonicSession):
 
     async def reauthenticate(self, otp_code: str | None = None):
         await super().reauthenticate(otp_code)
-        await self._get_groups()    
+        await self._get_groups()
+
+    def get_browser_authorization_url(self) -> tuple[str, str]:
+        """Alternative to :meth:`start_session`: build a URL to authenticate in
+        a real browser instead of this library's own credential-scraping
+        login flow. Does not touch or affect start_session()/authenticate().
+
+        Returns:
+            A ``(authorization_url, code_verifier)`` tuple — see
+            :meth:`PanasonicAuthentication.build_authorization_url` for how
+            to use them.
+        """
+        return self.authentication.build_authorization_url()
+
+    async def complete_browser_authentication(self, redirect_url_or_code: str, code_verifier: str):
+        """Finish authentication started via :meth:`get_browser_authorization_url`.
+
+        Args:
+            redirect_url_or_code: The redirect URL the browser landed on (or
+                just the bare ``code`` value extracted from it).
+            code_verifier: The value returned by :meth:`get_browser_authorization_url`.
+        """
+        await self.authentication.complete_browser_authentication(redirect_url_or_code, code_verifier)
+        await self._get_groups()
 
 
     async def refresh_token(self):

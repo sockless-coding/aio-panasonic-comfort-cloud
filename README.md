@@ -172,11 +172,51 @@ user first) in response.
 
 ## 2FA / MFA Support
 
-If your account has two-factor authentication enabled, pass the OTP code:
+If your account has two-factor authentication enabled, `start_session()`
+raises `MFARequiredError` instead of logging in. Catch it, prompt the user
+for the OTP code from their authenticator app, and retry with it:
 
 ```python
-await client.start_session(otp_code="123456")
+from aio_panasonic_comfort_cloud.exceptions import MFARequiredError
+
+try:
+    await client.start_session()
+except MFARequiredError:
+    otp_code = input("Enter the 2FA code: ")
+    await client.start_session(otp_code=otp_code)
 ```
+
+## Alternative: Browser-Based Authentication
+
+`start_session()` drives Panasonic's login page itself — it POSTs your
+credentials and scrapes the resulting HTML/redirects, which has to correctly
+handle whatever Auth0 renders for every connection type (password, MFA,
+social login, ...). As an alternative that sidesteps all of that, you can let
+a real browser (a WebView, the system browser, etc.) handle the login instead
+and just hand the result back to the library:
+
+```python
+# 1. Build the URL and open it in any browser
+auth_url, code_verifier = client.get_browser_authorization_url()
+print(f"Open this URL and log in: {auth_url}")
+
+# 2. After login, the browser is redirected to a URL starting with
+#    "panasonic-iot-cfc://...callback?code=...". Capture that redirect
+#    (however your application observes it — a WebView navigation listener,
+#    a custom URI scheme handler, pasting it in, etc.) and finish the login:
+redirect_url = input("Paste the redirect URL here: ")
+await client.complete_browser_authentication(redirect_url, code_verifier)
+
+# From here on, the client behaves exactly as if start_session() had been
+# called — get_devices(), get_device(), etc. all work normally.
+devices = client.get_devices()
+```
+
+This is entirely separate from `start_session()`/`authenticate()` — it
+doesn't change how the default username/password flow behaves, it's just
+another way to obtain the same tokens. Because Auth0's own hosted page
+handles the actual login, this path naturally supports MFA, social login,
+etc. without any special-casing in the library.
 
 ## Full Example
 
