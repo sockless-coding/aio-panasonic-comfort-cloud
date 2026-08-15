@@ -1136,6 +1136,14 @@ class PanasonicDeviceEnergy:
         self._has_changed = False
         return has_changed
     
+    @staticmethod
+    def _clamp_power(power: float | None) -> float | None:
+        if power is None:
+            return None
+        if not math.isfinite(power) or power < 0:
+            return 0
+        return min(power, constants.MAX_POWER_WATTS)
+
     def _update_consumption(self, value):
         now = datetime.now(timezone.utc)
         if self._consumption == value:
@@ -1159,11 +1167,11 @@ class PanasonicDeviceEnergy:
             delta = (now - self._last_consumption_changed).total_seconds() / 3600
             self._last_consumption_changed = now
             energy_diff = calculate_energy_diff(self._consumption, self._last_consumption)
-            self._current_power = round((energy_diff*1000)/delta)
+            self._current_power = self._clamp_power(round((energy_diff*1000)/delta) if delta > 0 else None)
             energy_diff = calculate_energy_diff(self._cooling_consumption, self._last_cooling_consumption)
-            self._cooling_power = round((energy_diff*1000)/delta)
+            self._cooling_power = self._clamp_power(round((energy_diff*1000)/delta) if delta > 0 else None)
             energy_diff = calculate_energy_diff(self._heating_consumption, self._last_heating_consumption)
-            self._heating_power = round((energy_diff*1000)/delta)
+            self._heating_power = self._clamp_power(round((energy_diff*1000)/delta) if delta > 0 else None)
 
     def _update_cooling_consumption(self, tolerance=1e-9):
         new_cooling_consumption = self._consumption * self.cooling_rate
