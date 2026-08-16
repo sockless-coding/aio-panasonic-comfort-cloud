@@ -68,6 +68,32 @@ if builder.has_changes:
     await client.set_device_raw(device, builder.build())
 ```
 
+### Avoiding Unwanted Power-On
+
+Some changes (swing direction, hvac mode, target temperature, eco mode) require the
+device to be on to take effect, so by default the library silently powers the device
+on for you if it's currently off. If you'd rather not have those changes wake up an
+AC that was deliberately left off, construct the client with `auto_power_on=False`.
+While the device is off, matching changes are buffered instead of sent; they're
+applied together the next time the device is explicitly powered on.
+
+```python
+client = ApiClient("your_email@example.com", "your_password", session, auto_power_on=False)
+
+# ... device is off ...
+builder = client.new_change_request(device)  # wires auto_power_on from the client
+builder.set_horizontal_swing(constants.AirSwingLR.Left)
+await client.set_device_raw(device, builder.build())  # buffered, nothing sent yet
+
+# later, when the device is turned on the buffered swing change is merged in and sent together
+builder = client.new_change_request(device)
+builder.set_power_mode(constants.Power.On)
+await client.set_device_raw(device, builder.build())
+```
+
+Use `client.has_pending_changes(device)` to check whether a device has buffered
+changes waiting to be applied.
+
 ### Available Enums
 
 | Category | Values |

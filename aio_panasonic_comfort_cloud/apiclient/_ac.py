@@ -6,6 +6,7 @@ from ..panasonicdevice import PanasonicDevice, PanasonicDeviceInfo
 from ._timezone import get_current_time_zone
 
 if TYPE_CHECKING:
+    from ..changerequestbuilder import ChangeRequestBuilder
     from ._protocol import ApiClientCore
 else:
     ApiClientCore = object
@@ -81,13 +82,13 @@ class AirConditionerMixin(ApiClientCore):
                         if new_value == constants.AirSwingLR.Auto
                         else constants.AirSwingAutoMode.AirSwingUD)
 
-        await self.set_device_raw(
-            device,
-            {
-                "operate": constants.Power.On,
-                "airSwingLR": new_value.value,
-                "fanAutoMode": fan_auto.value
-            })
+        parameters = {
+            "airSwingLR": new_value.value,
+            "fanAutoMode": fan_auto.value
+        }
+        if self._auto_power_on:
+            parameters["operate"] = constants.Power.On.value
+        await self.set_device_raw(device, parameters)
 
     async def set_vertical_swing(self, device: PanasonicDevice, new_value: str | constants.AirSwingUD):
         """ Set vertical swing"""
@@ -101,13 +102,13 @@ class AirConditionerMixin(ApiClientCore):
                         if new_value == constants.AirSwingUD.Auto
                         else constants.AirSwingAutoMode.AirSwingLR)
 
-        await self.set_device_raw(
-            device,
-            {
-                "operate": constants.Power.On,
-                "airSwingUD": new_value.value,
-                "fanAutoMode": fan_auto.value
-            })
+        parameters = {
+            "airSwingUD": new_value.value,
+            "fanAutoMode": fan_auto.value
+        }
+        if self._auto_power_on:
+            parameters["operate"] = constants.Power.On.value
+        await self.set_device_raw(device, parameters)
 
     async def set_nanoe_mode(self, device: PanasonicDevice, new_value: str | constants.NanoeMode):
         """ Set Nanoe mode"""
@@ -150,12 +151,47 @@ class AirConditionerMixin(ApiClientCore):
             })
 
     async def set_device_raw(self, device: PanasonicDevice, parameters):
-        """ Set parameters of device"""
+        """ Set parameters of device
+
+        If ``auto_power_on`` is disabled on the client and the device is currently off,
+        the change is buffered instead of being sent, unless it explicitly powers the
+        device on (in which case any previously buffered changes for this device are
+        merged in and applied together).
+        """
+        device_guid = device.info.guid
+        turning_on = parameters.get("operate") == constants.Power.On.value
+
+        if turning_on:
+            parameters = self._pop_pending_change(device_guid, parameters)
+        elif not self._auto_power_on and device.parameters.power != constants.Power.On:
+            self._buffer_pending_change(device_guid, parameters)
+            return
+
         payload = {
-            "deviceGuid": device.info.guid,
+            "deviceGuid": device_guid,
             "parameters": parameters
         }
         await self.execute_post(self._get_device_status_control_url(), payload, "set_device", 200)
+
+    def _buffer_pending_change(self, device_guid: str | None, parameters: dict) -> None:
+        pending = self._pending_changes.setdefault(device_guid or "", {})
+        pending.update(parameters)
+        _LOGGER.debug("Device %s is off, buffering change: %s", device_guid, parameters)
+
+    def _pop_pending_change(self, device_guid: str | None, parameters: dict) -> dict:
+        pending = self._pending_changes.pop(device_guid or "", None)
+        if not pending:
+            return parameters
+        return {**pending, **parameters}
+
+    def has_pending_changes(self, device: PanasonicDevice) -> bool:
+        """ True if there are buffered changes waiting for this device to be powered on """
+        return (device.info.guid or "") in self._pending_changes
+
+    def new_change_request(self, device: PanasonicDevice) -> "ChangeRequestBuilder":
+        """ Create a ChangeRequestBuilder wired to this client's auto_power_on setting """
+        from ..changerequestbuilder import ChangeRequestBuilder
+        return ChangeRequestBuilder(device, auto_power_on=self._auto_power_on)
 
     async def set_device(self, device_info: PanasonicDeviceInfo, **kwargs):
         """ Set parameters of device
@@ -243,6 +279,8 @@ class AirConditionerMixin(ApiClientCore):
 
         device_guid = device_info.guid
         if device_guid:
+            if parameters.get("operate") == constants.Power.On.value:
+                parameters = self._pop_pending_change(device_guid, parameters)
             payload = {
                 "deviceGuid": device_guid,
                 "parameters": parameters

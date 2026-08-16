@@ -45,7 +45,21 @@ class ApiClient(
                  password,
                  client: aiohttp.ClientSession,
                  token_file_name='~/.panasonic-settings',
-                 raw=False):
+                 raw=False,
+                 auto_power_on=True):
+        """
+        Args:
+            username: Panasonic Comfort Cloud account email.
+            password: Panasonic Comfort Cloud account password.
+            client: aiohttp session used for all requests.
+            token_file_name: Where to persist the authentication token.
+            raw: Keep raw JSON responses on device info objects.
+            auto_power_on: When True (default), changing a setting that requires the
+                device to be on (e.g. swing, hvac mode, target temperature, eco mode)
+                will silently power the device on first if it's currently off. When
+                False, such changes are instead buffered while the device is off and
+                applied together the next time it is explicitly powered on.
+        """
         super().__init__(username, password, client, token_file_name, raw)
 
         self._groups = None
@@ -58,6 +72,8 @@ class ApiClient(
         self._device_indexer = {}
         self._raw = raw
         self._acc_client_id = None
+        self._auto_power_on = auto_power_on
+        self._pending_changes: dict[str, dict] = {}
 
     async def __aenter__(self):
         await self.start_session()

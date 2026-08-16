@@ -4,9 +4,20 @@ from . import constants
 
 class ChangeRequestBuilder:
 
-    def __init__(self, device: PanasonicDevice):
+    def __init__(self, device: PanasonicDevice, auto_power_on: bool = True):
+        """
+        Args:
+            device: The device to build changes for.
+            auto_power_on: When True (default), setters that require the device to be
+                on (eco mode, target temperature, hvac mode, swing) will implicitly add
+                a power-on request if the device is currently off. When False, no
+                power-on is added automatically; pair this with
+                ``ApiClient(..., auto_power_on=False)`` so the change is buffered by
+                the client instead and applied once the device is actually turned on.
+        """
         self._request = {}
         self._device = device
+        self._auto_power_on = auto_power_on
 
     @property
     def has_changes(self) -> bool:
@@ -206,7 +217,9 @@ class ChangeRequestBuilder:
         return zone_parameters
     
     def _ensure_powered_on(self) -> None:
-        """ Ensure that the device is powered on"""
+        """ Ensure that the device is powered on, unless auto_power_on is disabled """
+        if not self._auto_power_on:
+            return
         if self._device.parameters.power == constants.Power.On:
             return
         self._request["operate"] = constants.Power.On.value
