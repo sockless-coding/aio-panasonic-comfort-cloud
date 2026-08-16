@@ -65,10 +65,16 @@ class ChangeRequestBuilder:
         return constants.OperationMode(self._request["operationMode"]) if "operationMode" in self._request else None
 
     def set_hvac_mode(self, new_value: str | constants.OperationMode):
-        """ Set hvac mode"""
+        """ Set hvac mode
+
+        Unlike the other setters that use ``_ensure_powered_on``, this always powers
+        the device on regardless of ``auto_power_on``: changing the operation mode is
+        an explicit instruction to run in that mode now, not a preference to queue up
+        for the next time the device is turned on.
+        """
         if isinstance(new_value, str):
             new_value = constants.OperationMode[new_value]
-        self._ensure_powered_on()
+        self._force_powered_on()
         self._request["operationMode"] = new_value.value
         return self
 
@@ -220,6 +226,10 @@ class ChangeRequestBuilder:
         """ Ensure that the device is powered on, unless auto_power_on is disabled """
         if not self._auto_power_on:
             return
+        self._force_powered_on()
+
+    def _force_powered_on(self) -> None:
+        """ Ensure that the device is powered on, regardless of auto_power_on """
         if self._device.parameters.power == constants.Power.On:
             return
         self._request["operate"] = constants.Power.On.value
