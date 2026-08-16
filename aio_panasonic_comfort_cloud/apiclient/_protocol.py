@@ -28,6 +28,8 @@ class ApiClientCore(Protocol):
     _unknown_devices: list[PanasonicDeviceInfo]
     _cache_devices: dict
     _device_indexer: dict
+    _auto_power_on: bool
+    _pending_changes: dict[str, dict]
 
     @property
     def unknown_devices(self) -> list[PanasonicDeviceInfo]: ...
