@@ -136,6 +136,68 @@ class AquareaMixin(ApiClientCore):
             new_value = constants.AquareaOperationStatus[new_value]
         await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]})
 
+    async def set_aquarea_operation_state(
+        self,
+        device: AquareaDevice,
+        mode: "constants.AquareaUpdateOperationMode | None" = None,
+        zone_id: int | None = None,
+        zone_status: "constants.AquareaOperationStatus | None" = None,
+        tank_status: "constants.AquareaOperationStatus | None" = None,
+    ) -> None:
+        """ Change the operation mode and/or a zone's/the tank's on-off status in one combined request.
+
+        Aquarea's ``operationMode`` and whole-unit ``operationStatus`` are
+        device-wide (a single compressor serves every zone plus the tank),
+        while ``zoneStatus``/``tankStatus`` are effectively replaced rather
+        than merged: a request that changes one of these without also
+        resending the others' *current* values causes the omitted ones to
+        reset (observed as the tank switching itself back on when a zone's
+        mode changes, and as zones/tank that can never be turned off since
+        the whole-unit ``operationStatus`` was never being sent). This
+        mirrors the pre-8.x aioaquarea-based implementation's behavior,
+        which always recomputed and resent the complete state on every
+        change. Make sure `device` was refreshed recently (get_aquarea_device()/
+        try_update_aquarea_device()) before calling this.
+
+        Args:
+            device: The Aquarea device, with recently refreshed parameters.
+            mode: New operation mode (heat/cool/auto/off), or None to leave
+                the current mode unchanged.
+            zone_id: The zone to change, together with `zone_status`.
+            zone_status: The new on/off status for `zone_id`. Every other
+                zone keeps its current status.
+            tank_status: The new on/off status for the tank, or None to
+                leave it unchanged.
+        """
+        params = device.parameters
+
+        resolved_zone_status = {zone.id: zone.operation_status for zone in params.zones}
+        if zone_id is not None and zone_status is not None:
+            resolved_zone_status[zone_id] = zone_status
+
+        resolved_tank_status = (
+            params.tank.operation_status if params.has_tank and params.tank else constants.AquareaOperationStatus.Off
+        )
+        if tank_status is not None:
+            resolved_tank_status = tank_status
+
+        any_on = resolved_tank_status == constants.AquareaOperationStatus.On or any(
+            status == constants.AquareaOperationStatus.On for status in resolved_zone_status.values()
+        )
+        operation_status = constants.AquareaOperationStatus.On if any_on else constants.AquareaOperationStatus.Off
+
+        body: dict = {
+            "operationStatus": operation_status.value,
+            "zoneStatus": [
+                {"zoneId": zid, "operationStatus": status.value} for zid, status in resolved_zone_status.items()
+            ],
+            "tankStatus": {"operationStatus": resolved_tank_status.value},
+        }
+        if mode is not None:
+            body["operationMode"] = mode.value
+
+        await self._async_set_aquarea(device.info, body)
+
     @staticmethod
     def _clamp(value, min_value, max_value):
         if value is None:
