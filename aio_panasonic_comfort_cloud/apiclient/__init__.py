@@ -112,6 +112,15 @@ class ApiClient(
     def has_hws_devices(self):
         return len(self.hws_devices) > 0
 
+    @property
+    def has_devices(self):
+        return (
+            len(self.get_devices()) > 0
+            or self.has_aquarea_devices
+            or self.has_hws_devices
+            or self.has_unknown_devices
+        )
+
     async def start_session(self, otp_code: str | None = None):
         await super().start_session(otp_code)
         try:
