@@ -38,15 +38,19 @@ class HwsMixin(ApiClientCore):
     async def _async_set_hws(self, device_info: PanasonicDeviceInfo, body: dict):
         """Send a partial update to an HWS device.
 
-        Unverified / best-effort: this targets ``/device/a2wInfoUpdate``
-        (reported from a real Comfort Cloud app capture, not yet confirmed
-        by us against a live account) rather than a reverse-engineered and
-        tested endpoint like the other ``set_*`` methods in this client.
-        Please report back if this does or doesn't work against a real
-        HWS device.
+        HWS devices report their state as a ``parameters`` object under
+        ``/device/group`` with the same shape as an air conditioner's
+        (``hpuOperationStatus``/``operationMode``/``boostMode``/``tankTemperature``
+        instead of AC fields like ``operate``/``operationMode``), so this
+        goes through the same ``/deviceStatus/control`` endpoint as
+        :meth:`AirConditionerMixin.set_device_raw` rather than the
+        ``/device/a2wInfoUpdate`` endpoint previously guessed from an app
+        capture, which doesn't actually exist (confirmed 403 "Missing
+        Authentication Token" — API Gateway's error for a route that isn't
+        registered — against a live account).
         """
-        payload = {"deviceGuid": device_info.guid, **body}
-        await self.execute_post(self._get_hws_update_url(), payload, "set_hws_device", 200)
+        payload = {"deviceGuid": device_info.guid, "parameters": body}
+        await self.execute_post(self._get_device_status_control_url(), payload, "set_hws_device", 200)
 
     async def set_hws_tank_temperature(self, device_info: PanasonicDeviceInfo, temperature: float):
         """ Set the target temperature of the hot water tank (unverified, see _async_set_hws) """

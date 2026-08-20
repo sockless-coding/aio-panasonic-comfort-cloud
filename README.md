@@ -223,9 +223,16 @@ for device_info in hws_devices:
 
 Reading status this way is confirmed working against a real device. Control
 (`set_hws_tank_temperature`, `set_hws_boost_mode`, `set_hws_operation_status`,
-`set_hws_operation_mode`) targets `/device/a2wInfoUpdate`, reported from a
-Comfort Cloud app capture but **not yet verified against a live account** —
-please open an issue if it doesn't work as-is.
+`set_hws_operation_mode`) goes through the same `/deviceStatus/control`
+endpoint air conditioners use, with the HWS's tank-specific fields
+(`tankTemperature`, `hpuOperationStatus`, `operationMode`, `boostMode`)
+wrapped in `parameters` — matching the shape `/device/group` already reports
+for these devices. An earlier version of this targeted a separate
+`/device/a2wInfoUpdate` endpoint reported from an app capture, but that
+endpoint doesn't actually exist (confirmed 403 "Missing Authentication
+Token" — API Gateway's error for an unregistered route — against a live
+account); **the `/deviceStatus/control` approach is still unverified against
+a live HWS device**, please open an issue if it doesn't work as-is.
 
 ## Terms / Privacy Policy Agreements
 

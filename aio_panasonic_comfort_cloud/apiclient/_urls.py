@@ -44,11 +44,6 @@ class UrlsMixin:
             base_url=constants.BASE_PATH_ACC
         )
 
-    def _get_hws_update_url(self):
-        return '{base_url}/device/a2wInfoUpdate'.format(
-            base_url=constants.BASE_PATH_ACC
-        )
-
     def _get_agreement_status_url(self, type_id: int):
         return '{base_url}/auth/agreement/status/{type_id}'.format(
             base_url=constants.BASE_PATH_ACC,
