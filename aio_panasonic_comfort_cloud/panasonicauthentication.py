@@ -1,8 +1,10 @@
 import aiohttp
+import asyncio
 import base64
 import hashlib
 import logging
 import random
+import re
 import string
 import urllib
 import urllib.parse
@@ -40,6 +42,33 @@ def get_querystring_parameter_from_url(url: str, querystring_parameter: str):
     return params.get(querystring_parameter, [None])[0]
 
 
+_GUARDIAN_CONFIG_KEYS = ("postActionURL", "serviceUrl", "requestToken", "stateCheckingMechanism")
+
+
+def _extract_guardian_config(html_text: str) -> dict | None:
+    """Extract the inline ``window.__g_config = {...}`` object embedded in
+    Auth0 Guardian's hosted MFA widget page ("Panasonic Digital Platform -
+    MFA Standard"), served instead of the classic Universal Login MFA
+    prompt (whose hidden ``mfa_token`` form field is checked separately)
+    for accounts enrolled via Guardian. The object isn't valid JSON
+    (unquoted keys, JS comments), so its string-valued fields are pulled
+    out with a simple regex rather than parsed structurally.
+
+    Returns None if the page doesn't contain a Guardian config.
+    """
+    if "__g_config" not in html_text:
+        return None
+    config = {}
+    for key in _GUARDIAN_CONFIG_KEYS:
+        match = re.search(rf'{key}\s*:\s*"((?:[^"\\]|\\.)*)"', html_text)
+        if match:
+            config[key] = match.group(1)
+    if not config.get("requestToken") or not config.get("serviceUrl") or not config.get("postActionURL"):
+        return None
+    config.setdefault("stateCheckingMechanism", "polling")
+    return config
+
+
 class PanasonicAuthentication:
 
     def __init__(self, client: aiohttp.ClientSession, settings: PanasonicSettings, app_version:CCAppVersion):
@@ -49,6 +78,8 @@ class PanasonicAuthentication:
         # State for 2FA flow
         self._mfa_token = None
         self._mfa_parameters = {}
+        self._guardian_mfa_config = None
+        self._code_verifier = None
 
     async def authenticate(self, username: str, password: str, otp_code: str | None = None):
       
@@ -56,9 +87,13 @@ class PanasonicAuthentication:
         # Reset 2FA state
         self._mfa_token = None
         self._mfa_parameters = {}
+        self._guardian_mfa_config = None
 
         # generate initial state and code_challenge
         code_verifier = generate_random_string(43)
+        # Stashed so a Guardian MFA challenge (see verify_mfa) can complete
+        # the authorization-code exchange with the same PKCE verifier later.
+        self._code_verifier = code_verifier
 
         code_challenge = base64.urlsafe_b64encode(
             hashlib.sha256(
@@ -94,13 +129,21 @@ class PanasonicAuthentication:
         await self._retrieve_client_acc()
 
     async def verify_mfa(self, otp_code: str):
-        """Complete a pending MFA/2FA challenge using Auth0's MFA API.
+        """Complete a pending MFA/2FA challenge.
 
-        This tenant (authglb.digital.panasonic.com) exposes the standard
-        Auth0 MFA OOB/OTP API (see its /.well-known/openid-configuration,
-        which advertises a "mfa_challenge_endpoint" and the
-        "http://auth0.com/oauth/grant-type/mfa-otp" grant type) — unlike the
-        rest of the login flow, this part isn't scraped from an HTML page.
+        Panasonic's Auth0 tenant serves one of two different challenge
+        pages depending on the account's MFA enrollment, detected in
+        _login()/the "MFA challenge candidate" branch below:
+
+        - The classic Universal Login MFA prompt, which returns an
+          mfa_token and is completed via Auth0's standard MFA OOB/OTP API
+          (see its /.well-known/openid-configuration, which advertises a
+          "mfa_challenge_endpoint" and the
+          "http://auth0.com/oauth/grant-type/mfa-otp" grant type) — this is
+          the branch handled directly below.
+        - Auth0 Guardian's hosted widget (Panasonic's "MFA Standard" page),
+          handled by _verify_guardian_mfa() instead, since it uses a
+          completely different (and undocumented) protocol.
 
         Args:
             otp_code: The one-time password from the user's authenticator app.
@@ -108,6 +151,10 @@ class PanasonicAuthentication:
         Raises:
             MFARequiredError: If no pending MFA challenge exists (call authenticate first).
         """
+        if self._guardian_mfa_config:
+            await self._verify_guardian_mfa(otp_code)
+            return
+
         if not self._mfa_token:
             raise exceptions.MFARequiredError("No pending MFA challenge. Call authenticate() first.")
 
@@ -184,6 +231,128 @@ class PanasonicAuthentication:
         token_response = json.loads(await response.text())
         self._set_token(token_response, unix_time_token_received)
 
+    async def _verify_guardian_mfa(self, otp_code: str):
+        """Complete a pending MFA challenge served by Auth0 Guardian's
+        hosted widget (Panasonic's "MFA Standard" page).
+
+        This protocol isn't part of Auth0's documented MFA API — it's
+        Panasonic's own "appliance-mfa" backend, driven client-side by the
+        auth0GuardianJS library. It was reverse-engineered directly from
+        that library's source (cdn.auth0.com/js/guardian-js) and from
+        Panasonic's own MFA UI scripts (authst-pn.digital.panasonic.com/mfa),
+        which the challenge page loads:
+
+        1. POST {serviceUrl}/api/start-flow, authenticated with
+           "Authorization: Bearer {requestToken}", body
+           {"state_transport": "polling"}. Returns a transactionToken.
+        2. POST {serviceUrl}/api/verify-otp, authenticated with
+           "Authorization: Bearer {transactionToken}", body
+           {"type": "manual_input", "code": <otp>} to submit the code.
+        3. POST {serviceUrl}/api/transaction-state (same auth), polled
+           until its "state" field is "accepted" (with a "token" field
+           holding the signature) or "rejected".
+        4. The resulting {"accepted": "true", "signature": <token>} pair is
+           posted as a plain HTML form to postActionURL — this is exactly
+           what guardian-js's own formPostHelper does — which resumes the
+           normal Auth0 authorization-code redirect chain.
+
+        Args:
+            otp_code: The one-time password from the user's authenticator app.
+        """
+        config = self._guardian_mfa_config
+        self._guardian_mfa_config = None
+        if not config:
+            raise exceptions.MFARequiredError("No pending Guardian MFA challenge. Call authenticate() first.")
+        service_url = config["serviceUrl"]
+        request_token = config["requestToken"]
+        post_action_url = config["postActionURL"]
+
+        start_response = await self._client.post(
+            f"{service_url}/api/start-flow",
+            headers={
+                "Authorization": f"Bearer {request_token}",
+                "Accept": "application/json",
+            },
+            json={"state_transport": "polling"},
+            allow_redirects=False)
+        await check_response(start_response, 'guardian_start_flow', 200)
+        start_body = json.loads(await start_response.text())
+        transaction_token = start_body.get("transactionToken")
+        if not transaction_token:
+            raise exceptions.ResponseError(
+                "Guardian MFA start-flow response did not include a transactionToken")
+
+        verify_response = await self._client.post(
+            f"{service_url}/api/verify-otp",
+            headers={
+                "Authorization": f"Bearer {transaction_token}",
+                "Accept": "application/json",
+            },
+            json={"type": "manual_input", "code": otp_code},
+            allow_redirects=False)
+        verify_text = await verify_response.text()
+        _LOGGER.debug("Guardian MFA verify-otp response, %s", json.dumps({
+            'status': verify_response.status,
+            'body': verify_text
+        }))
+        if verify_response.status == 403:
+            raise exceptions.ResponseError(f"Invalid MFA/OTP code: {verify_text}")
+        await check_response(verify_response, 'guardian_verify_otp', 200)
+
+        signature = None
+        for _ in range(10):
+            state_response = await self._client.post(
+                f"{service_url}/api/transaction-state",
+                headers={
+                    "Authorization": f"Bearer {transaction_token}",
+                    "Accept": "application/json",
+                },
+                allow_redirects=False)
+            await check_response(state_response, 'guardian_transaction_state', 200)
+            state_body = json.loads(await state_response.text())
+            state = state_body.get("state")
+            if state == "accepted":
+                signature = state_body.get("token")
+                break
+            if state == "rejected":
+                raise exceptions.ResponseError("Guardian MFA login was rejected")
+            await asyncio.sleep(1)
+        if not signature:
+            raise exceptions.ResponseError(
+                "Timed out waiting for the Guardian MFA transaction to be accepted")
+
+        callback_response = await self._client.post(
+            post_action_url,
+            data={"accepted": "true", "signature": signature},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": AUTH_BROWSER_USER_AGENT,
+            },
+            allow_redirects=False)
+        await check_response(callback_response, 'guardian_post_action', 302)
+
+        code = await self._follow_redirects_for_code(callback_response)
+        await self._request_new_token(code, self._code_verifier)
+
+    async def _follow_redirects_for_code(self, response: aiohttp.ClientResponse, max_redirects: int = 5) -> str:
+        """Follow a chain of 302 redirects (as issued by Auth0's hosted
+        pages) until one carries a "code" query parameter, as used to
+        finish the Guardian MFA flow above.
+        """
+        for _ in range(max_redirects):
+            location = response.headers['Location']
+            _LOGGER.debug("Following redirect, %s", json.dumps({'redirect': location}))
+            code = get_querystring_parameter_from_url(location, 'code')
+            if code:
+                return code
+            if location.startswith(REDIRECT_URI):
+                raise exceptions.ResponseError(
+                    "Redirect chain ended at the app redirect URI without an authorization "
+                    f"code (location: {location})")
+            url = location if location.startswith("http") else f"{BASE_PATH_AUTH}/{location}"
+            response = await self._client.get(url, allow_redirects=False)
+            await check_response(response, 'follow_redirect', 302)
+        raise exceptions.ResponseError("Too many redirects while completing the Guardian MFA login")
 
     @staticmethod
     def _build_authorize_params(challenge: str, state: str) -> dict:
@@ -345,6 +514,12 @@ class PanasonicAuthentication:
             self._mfa_parameters = {k: v for k, v in parameters.items() if k != "mfa_token"}
             raise exceptions.MFARequiredError(mfa_token)
 
+        guardian_config = _extract_guardian_config(response_text)
+        if guardian_config:
+            _LOGGER.debug("Guardian MFA challenge detected, storing config for verification")
+            self._guardian_mfa_config = guardian_config
+            raise exceptions.MFARequiredError(guardian_config["requestToken"])
+
         _LOGGER.debug("Callback with parameters, %s", json.dumps(parameters))
         response = await self._client.post(
             url=f"{BASE_PATH_AUTH}/login/callback",
@@ -401,6 +576,12 @@ class PanasonicAuthentication:
             self._mfa_token = mfa_token
             self._mfa_parameters = {k: v for k, v in challenge_parameters.items() if k != "mfa_token"}
             raise exceptions.MFARequiredError(mfa_token)
+
+        guardian_config = _extract_guardian_config(challenge_text)
+        if guardian_config:
+            _LOGGER.debug("Guardian MFA challenge detected at %s, storing config for verification", challenge_url)
+            self._guardian_mfa_config = guardian_config
+            raise exceptions.MFARequiredError(guardian_config["requestToken"])
 
         raise exceptions.ResponseError(
             "Login flow did not produce an authorization code and no MFA challenge could be "
