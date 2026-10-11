@@ -475,24 +475,30 @@ class PanasonicDeviceParameters:
 
 
     def _load_swing_mode(self, json):
+        # fanAutoMode decides whether each axis is in auto; airSwingLR/airSwingUD
+        # only hold the fixed position for an axis that is not. Resolve the final
+        # value per axis before assigning so an auto axis doesn't flip through
+        # its stale fixed position (which would flag a change on every load).
+        horizontal = self.horizontal_swing_mode
+        vertical = self.vertical_swing_mode
         if 'airSwingLR' in json:
             try:
-                self.horizontal_swing_mode = constants.AirSwingLR(json['airSwingLR'])
+                horizontal = constants.AirSwingLR(json['airSwingLR'])
             except (ValueError, TypeError) as exc:
                 _LOGGER.warning("Invalid horizontal swing mode '%s': %s", json['airSwingLR'], exc)
         if 'airSwingUD' in json:
             try:
-                self.vertical_swing_mode = constants.AirSwingUD(json['airSwingUD'])
+                vertical = constants.AirSwingUD(json['airSwingUD'])
             except (ValueError, TypeError) as exc:
                 _LOGGER.warning("Invalid vertical swing mode '%s': %s", json['airSwingUD'], exc)
         if 'fanAutoMode' in json:
-            if json['fanAutoMode'] == constants.AirSwingAutoMode.Both.value:
-                self.horizontal_swing_mode = constants.AirSwingLR.Auto
-                self.vertical_swing_mode = constants.AirSwingUD.Auto
-            elif json['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingLR.value:
-                self.horizontal_swing_mode = constants.AirSwingLR.Auto
-            elif json['fanAutoMode'] == constants.AirSwingAutoMode.AirSwingUD.value:
-                self.vertical_swing_mode = constants.AirSwingUD.Auto
+            fan_auto = json['fanAutoMode']
+            if fan_auto in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingLR.value):
+                horizontal = constants.AirSwingLR.Auto
+            if fan_auto in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingUD.value):
+                vertical = constants.AirSwingUD.Auto
+        self.horizontal_swing_mode = horizontal
+        self.vertical_swing_mode = vertical
 
 
 
@@ -567,7 +573,16 @@ class PanasonicDevice:
     def has_horizontal_swing(self):
         if self._features is None or self._parameters is None:
             return False
-        return self._features.air_swing_lr and self._parameters.horizontal_swing_mode != constants.AirSwingLR.Unavailable
+        if not self._features.air_swing_lr or self._parameters.horizontal_swing_mode == constants.AirSwingLR.Unavailable:
+            return False
+        # Mirrors the Comfort Cloud app: device type "7" only checks the feature
+        # flag; other types also hide horizontal swing for the ducted/CAC types
+        # and when airDirection says the left/right louver is disabled.
+        if self._info.device_type == "7":
+            return True
+        if self._info.device_type in ("4", "5", "6", "8", "9", "10"):
+            return False
+        return self._parameters.air_direction not in (1, 3)
     
     @property
     def has_inside_temperature(self):
