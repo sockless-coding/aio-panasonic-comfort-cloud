@@ -186,7 +186,7 @@ class HwsParameters:
             else:
                 for index,day_settings in enumerate(self._weeklySettings):
                     day_settings.load(weeklySettings_json[index])
-        except TypeError as e:
+        except (IndexError,TypeError) as e:
             self._has_weeklySettings = False
             self._weeklySettings=None
             return
