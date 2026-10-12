@@ -178,14 +178,19 @@ class HwsParameters:
         if not weeklySettings_json:
             self._has_weeklySettings = False
             return
+        try :
+            if self._weeklySettings is None:
+                self._weeklySettings = []
+                for day_settings_json in weeklySettings_json:
+                    self._weeklySettings.append(HwsDailySettings(day_settings_json))
+            else:
+                for index,day_settings in enumerate(self._weeklySettings):
+                    day_settings.load(weeklySettings_json[index])
+        except TypeError as e:
+            self._has_weeklySettings = False
+            self._weeklySettings=None
+            return
         self._has_weeklySettings = True
-        if self._weeklySettings is None:
-            self._weeklySettings = []
-            for day_settings_json in weeklySettings_json:
-                self._weeklySettings.append(HwsDailySettings(day_settings_json))
-        else:
-            for index,day_settings in enumerate(self._weeklySettings):
-                day_settings.load(weeklySettings_json[index])
         self._has_changed = True
         return
 
