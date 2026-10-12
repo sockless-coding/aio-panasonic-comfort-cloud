@@ -207,7 +207,7 @@ class AquareaDataMode(Enum):
 class HwsWeekdaySettings(Enum):
     """Weekday settings for HWS devices."""
 
-    Monady = 1
+    Monday = 1
     Tuesday = 2
     Wednesday = 3
     Thursday = 4
