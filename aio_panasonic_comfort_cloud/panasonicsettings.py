@@ -36,6 +36,7 @@ class PanasonicSettings:
         self._scope = None
         self._clientId = ""
         self._pending_saves: set[asyncio.Task] = set()
+        self._save_requested = False
         self._loading_task =asyncio.ensure_future(self._load())
         
     async def is_ready(self):
@@ -73,6 +74,18 @@ class PanasonicSettings:
             pass
     
     def _save(self):
+        # Coalesce saves — if a save is already running, flag that another one
+        # is needed. The running task re-snapshots the state before each write,
+        # so the most recent tokens always end up on disk.
+        self._save_requested = True
+        if self._pending_saves:
+            return
+
+        task = asyncio.ensure_future(self._do_save())
+        self._pending_saves.add(task)
+        task.add_done_callback(self._pending_saves.discard)
+
+    def _get_save_data(self):
         data = {}
         data[SETTING_VERSION] = self._version
         if self._versionDate:
@@ -82,23 +95,18 @@ class PanasonicSettings:
         data[SETTING_REFRESH_TOKEN] = self._refresh_token
         data[SETTING_CLIENT_ID] = self._clientId
         data[SETTING_SCOPE] = self._scope
+        return data
 
-        # Deduplicate saves — if there's already a pending save, skip this one.
-        # The most recent state will be saved when the pending task completes.
-        if self._pending_saves:
-            return
-
-        task = asyncio.ensure_future(self._do_save(data))
-        self._pending_saves.add(task)
-        task.add_done_callback(self._pending_saves.discard)
-
-    async def _do_save(self, data):
-        try:
-            async with aiofiles.open(self._fileName, 'w') as outfile:
-                await outfile.write(json.dumps(data))
-                _LOGGER.debug("Saved settings to '%s'", self._fileName)
-        except Exception as ex:
-            _LOGGER.warning("Failed to save settings to '%s'", self._fileName, exc_info=ex)
+    async def _do_save(self):
+        while self._save_requested:
+            self._save_requested = False
+            data = self._get_save_data()
+            try:
+                async with aiofiles.open(self._fileName, 'w') as outfile:
+                    await outfile.write(json.dumps(data))
+                    _LOGGER.debug("Saved settings to '%s'", self._fileName)
+            except Exception as ex:
+                _LOGGER.warning("Failed to save settings to '%s'", self._fileName, exc_info=ex)
 
     @property
     def version(self):
