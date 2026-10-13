@@ -1,3 +1,4 @@
+
 from enum import Enum
 
 
@@ -70,34 +71,28 @@ class NanoeMode(Enum):
     ModeG = 3
     All = 4
 
-
 class EcoNaviMode(Enum):
     Unavailable = 0
     Off = 1
     On = 2
-
 
 class EcoFunctionMode(Enum):
     Unavailable = 0
     Off = 1
     On = 2
 
-
 class ZoneMode(Enum):
     Off = 0
     On = 1
-
 
 class InsideCleaningMode(Enum):
     Off = 0
     On = 1
 
-
 class IAutoXMode(Enum):
     Unavailable = 0
     Off = 1
     On = 2
-
 
 class StatusDataMode(Enum):
     LIVE = 0
@@ -111,7 +106,6 @@ AQUAREA_DEVICE_TYPE = "2"
 
 class AquareaOperationStatus(Enum):
     """Whole-device, tank or zone on/off status."""
-
     Off = 0
     On = 1
     Unknown = 2
@@ -119,7 +113,6 @@ class AquareaOperationStatus(Enum):
 
 class AquareaOperationMode(Enum):
     """Operation mode as reported in the device status (read-only)."""
-
     Off = 0
     Heat = 1
     Cool = 2
@@ -129,7 +122,6 @@ class AquareaOperationMode(Enum):
 
 class AquareaUpdateOperationMode(Enum):
     """Operation mode values accepted when changing the mode."""
-
     Off = 0
     Heat = 2
     Cool = 3
@@ -194,7 +186,6 @@ class AquareaDataMode(Enum):
     ``Week`` and a different Year encoding). Aquarea's consumption endpoint
     has no "Week" granularity.
     """
-
     Day = 0
     Month = 1
     Year = 2
@@ -202,11 +193,38 @@ class AquareaDataMode(Enum):
 
 # --- HWS (standalone Heat Pump Hot Water tank, e.g. HE-UM40CR) ---
 # Device type "11" in the group listing identifies a standalone hot-water
+# heat pump unit. Unlike Aquarea combi units (type "2"), these report a flat
+# tankTemperature/hpuOperationStatus/operationMode/boostMode set inside a
+# "parameters" object (so they look superficially like an air conditioner),
+# but the AC deviceStatus/deviceHistoryData endpoints 403 for this device
+# class. They have their own /hphw/deviceStatus, /hphw/deviceStatus/control
+# and /hphw/deviceHistoryData endpoints instead, confirmed against a real
+# HE-UM40CR.
+HWS_DEVICE_TYPE = "11"
 
 
-class HwsWeekdaySettings(Enum):
-    """Weekday settings for HWS devices."""
+class HwsOperationStatus(Enum):
+    """Whether the heat pump unit is currently running (read-only)."""
+    Off = 0
+    On = 1
+    Unknown = 2
 
+
+class HwsOperationMode(Enum):
+    """Operation mode of an HWS device."""
+    Schedule = 0
+    # Only useful when the unit is wired to an inverter output signalling
+    # that PV production is active
+    PVTimer = 1
+    Holiday = 2
+
+
+class HwsBoostMode(Enum):
+    Off = 0
+    On = 1
+
+
+class HwsWeekday(Enum):
     Monday = 1
     Tuesday = 2
     Wednesday = 3
@@ -216,45 +234,17 @@ class HwsWeekdaySettings(Enum):
     Sunday = 7
 
 
-class HwsDailyModeSettings(Enum):
-    """Mode settings For the scheduling parameters"""
-
+class HwsDailyMode(Enum):
+    """Heating mode for one day of the weekly schedule."""
     Timer = 0
     Continuous = 1
 
 
-class HwsBoostModeSettings(Enum):
-    """Mode settings for HWS devices Boost Mode"""
-
-    Off = 0
-    On = 1
-
-
-class HwsOperationModeSettings(Enum):
-    """Mode settings for HWS devices Boost Mode"""
-
-    Schedule = 0
-    PVTimer = 1
-    Holiday = 2
-
-
-class HwsOperationStatus(Enum):
-    """Whole-device, tank or zone on/off status."""
-
-    Off = 0
-    On = 1
-    Unknown = 2
-
-
-class HwdDataMode(Enum):
+class HwsDataMode(Enum):
     """dataMode values for the HWS /hphw/deviceHistoryData endpoint."""
-
     Day = 0
     Month = 1
     Year = 2
-
-
-HWS_DEVICE_TYPE = "11"
 
 
 INVALID_TEMPERATURE = 126

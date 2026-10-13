@@ -29,12 +29,12 @@ class UrlsMixin:
             guid=self._prepare_device_guid(guid)
         )
 
-    def _get_hws_device_info_url(self, guid):
+    def _get_hws_device_status_url(self, guid):
         return '{base_url}/hphw/deviceStatus?deviceGuid={guid}&fromDevice=1'.format(
             base_url=constants.BASE_PATH_ACC,
             guid=self._prepare_device_guid(guid)
         )
-    
+
     def _get_hws_device_history_url(self):
         return '{base_url}/hphw/deviceHistoryData'.format(
             base_url=constants.BASE_PATH_ACC

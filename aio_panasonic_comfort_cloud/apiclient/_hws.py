@@ -1,136 +1,90 @@
-import logging
-from typing import TYPE_CHECKING
 from datetime import datetime
-from ._timezone import get_current_time_zone
+from typing import TYPE_CHECKING
 
 from .. import constants
 from ..hwsdevice import HwsDevice
+from ..models.hws import HwsConsumption, HwsDailySettings
 from ..panasonicdevice import PanasonicDeviceInfo
-from ..models.hws import HwsConsumption, HwsCustomEncoder,HwsDailySettings
-import json
+from ._timezone import get_current_time_zone
 
 if TYPE_CHECKING:
     from ._protocol import ApiClientCore
 else:
     ApiClientCore = object
 
-_LOGGER = logging.getLogger(__name__)
-
 
 class HwsMixin(ApiClientCore):
-    """Status/control for standalone Heat Pump Hot Water Tank (HWS) devices."""
+    """Status/control for standalone Heat Pump Hot Water Tank (HWS) devices.
+
+    HWS devices (deviceType "11") have their own ``/hphw/...`` endpoints; the
+    AC ``deviceStatus``/``deviceHistoryData`` calls 403 for this device class.
+    """
 
     async def _async_get_hws_status(self, device_info: PanasonicDeviceInfo):
-        if device_info.status_data_mode == constants.StatusDataMode.LIVE or (
-            device_info.id in self._cache_devices
-            and self._cache_devices[device_info.id] <= 0
-        ):
-            try:
-                json_response = await self.execute_get(
-                    self._get_hws_device_info_url(device_info.guid),
-                    "get_hws_status",
-                    200,
-                )
-                device_info.status_data_mode = constants.StatusDataMode.LIVE
-                return json_response
-            except Exception as e:  # noqa: BLE001
-                _LOGGER.warning(
-                    f"Failed to get live status for device {device_info.guid} switching to cached data.{e}"
-                )
-                device_info.status_data_mode = constants.StatusDataMode.CACHED
-                self._cache_devices[device_info.id] = 10  # FIXME??
-        json_response = await self.execute_get(
-            self._get_hws_device_info_url(device_info.guid), "get_status", 200
-        )
-        self._cache_devices[device_info.id] -= 1
-        return json_response
+        # No cached-status fallback like AC/Aquarea: no cached variant of the
+        # HWS status endpoint has been confirmed yet.
+        return await self.execute_get(self._get_hws_device_status_url(device_info.guid), "get_hws_status", 200)
 
     async def get_hws_device(self, device_info: PanasonicDeviceInfo) -> HwsDevice:
+        """Fetch the current status of a standalone Heat Pump Hot Water tank."""
         json_response = await self._async_get_hws_status(device_info)
         return HwsDevice(device_info, json_response)
 
     async def try_update_hws_device(self, device: HwsDevice) -> bool:
+        """Refresh an :class:`HwsDevice`. Returns True if anything changed."""
         json_response = await self._async_get_hws_status(device.info)
         return device.load(json_response)
 
     async def _async_set_hws(self, device_info: PanasonicDeviceInfo, body: dict):
-        """Send a partial update to an HWS device.
-
-        HWS devices respond to a few commands sent with the 
-        """
+        """Send a partial update to an HWS device through
+        ``/hphw/deviceStatus/control``. ``body`` holds only the changed keys
+        of the device's ``parameters`` object."""
         payload = {"deviceGuid": device_info.guid, "parameters": body}
-        await self.execute_post(
-            self._get_hws_device_status_control_url(), payload, "set_hws_device", 200
-        )
+        await self.execute_post(self._get_hws_device_status_control_url(), payload, "set_hws_device", 200)
 
-    async def set_hws_boost_mode(
-        self,
-        device_info: PanasonicDeviceInfo,
-        new_value: str | constants.HwsBoostModeSettings,
-    ):
-        """Turn boost mode on/off This is now verified"""
+    async def set_hws_boost_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.HwsBoostMode):
+        """ Turn boost mode on/off """
         if isinstance(new_value, str):
-            new_value = constants.HwsBoostModeSettings[new_value]
+            new_value = constants.HwsBoostMode[new_value]
         await self._async_set_hws(device_info, {"boostMode": new_value.value})
 
-    async def set_hws_operation_mode(
-        self, device_info: PanasonicDeviceInfo, new_value: constants.HwsOperationModeSettings
-    ):
-        """Set the raw operation mode value (unverified, see _async_set_hws; the
-        meaning of each mode value hasn't been confirmed against a real device)"""
+    async def set_hws_operation_mode(self, device_info: PanasonicDeviceInfo, new_value: str | int | constants.HwsOperationMode):
+        """ Set the operation mode (Schedule, PVTimer or Holiday) """
+        if isinstance(new_value, str):
+            new_value = constants.HwsOperationMode[new_value]
+        elif isinstance(new_value, int):
+            new_value = constants.HwsOperationMode(new_value)
         await self._async_set_hws(device_info, {"operationMode": new_value.value})
 
-    async def set_hws_holiday_mode(
-        self, device_info: PanasonicDeviceInfo
-    ):
-        """Turn on Holiday Mode Set the operation mode value (the
-        meaning of each mode value has been confirmed against a real device)"""
-        await self._async_set_hws(device_info, {"operationMode": constants.HwsOperationModeSettings.Holiday.value})
+    async def set_hws_holiday_mode(self, device_info: PanasonicDeviceInfo):
+        """ Switch to Holiday mode """
+        await self.set_hws_operation_mode(device_info, constants.HwsOperationMode.Holiday)
 
-    async def set_hws_schedule_mode(
-        self, device_info: PanasonicDeviceInfo
-    ):
-        """Turn on Schedule Mode - the default.  Set the operation mode value (the
-        meaning of each mode value has been confirmed against a real device)"""
-        await self._async_set_hws(device_info, {"operationMode": constants.HwsOperationModeSettings.Schedule.value})        
+    async def set_hws_schedule_mode(self, device_info: PanasonicDeviceInfo):
+        """ Switch to Schedule mode (the default) """
+        await self.set_hws_operation_mode(device_info, constants.HwsOperationMode.Schedule)
 
-    async def async_get_hws_consumption(
-        self, device_info: PanasonicDeviceInfo
-    ) -> HwsConsumption | None:
-        todays_item = await self._async_get_todays_hws_consumption(device_info)
-        if todays_item is None:
-            return None
-        return todays_item
+    async def async_set_hws_weekly_settings(self, device_info: PanasonicDeviceInfo, weekly_settings: list[HwsDailySettings]):
+        """Replace the weekly schedule of an HWS device. Pass the full list as
+        read from :attr:`HwsParameters.weekly_settings`, edited as needed."""
+        days = []
+        for day in weekly_settings:
+            if day.weekday is None or day.mode is None:
+                raise ValueError("Every HWS daily setting needs a weekday and a mode")
+            days.append(day.to_dict())
+        await self._async_set_hws(device_info, {"weeklySettingInfo": days})
 
-    async def async_try_update_hws_consumption(
-        self, device_info: PanasonicDeviceInfo, energy: HwsConsumption
-    ) -> bool | None:
+    async def async_get_hws_consumption(self, device_info: PanasonicDeviceInfo) -> HwsConsumption | None:
+        """Today's energy consumption, or None if there's no entry for today yet."""
+        return await self._async_get_todays_hws_consumption(device_info)
+
+    async def async_try_update_hws_consumption(self, device_info: PanasonicDeviceInfo, energy: HwsConsumption) -> bool:
         todays_item = await self._async_get_todays_hws_consumption(device_info)
         if not todays_item:
             return False
-        else:
-            return energy.copy(todays_item)
+        return energy.copy(todays_item)
 
-    async def async_set_hws_weekly_settings(
-        self, device_info: PanasonicDeviceInfo, weekly_settings: list[HwsDailySettings]
-    ):
-        """Set the weekly settings for the HWS device."""
-        # first encode the json into a string using a custom encoder to handle the HwsDailySettings objects
-        # validted that this works.
-        payload = json.dumps({
-            "deviceGuid": device_info.guid, 
-            "parameters": {"weeklySettingInfo": weekly_settings}
-            },cls=HwsCustomEncoder)
-        # then convert back into a json object to send to the API
-        new_payload = json.loads(payload)
-
-        await self.execute_post(
-            self._get_hws_device_status_control_url(), new_payload, "set_hws_weekly_settings", 200
-        )
-
-    async def _async_get_todays_hws_consumption(
-        self, device_info: PanasonicDeviceInfo
-    ) -> HwsConsumption | None:
+    async def _async_get_todays_hws_consumption(self, device_info: PanasonicDeviceInfo) -> HwsConsumption | None:
         device_guid = device_info.guid
         if not device_guid:
             return None
@@ -138,26 +92,16 @@ class HwsMixin(ApiClientCore):
 
         payload = {
             "deviceGuid": device_guid,
-            "dataMode": constants.HwdDataMode.Month.value,
+            "dataMode": constants.HwsDataMode.Month.value,
             "date": today,
             "osTimezone": get_current_time_zone()
         }
 
-        history = await self.execute_post(
-            self._get_hws_device_history_url(), payload, "get_todays_hws_energy", 200
-        )
+        history = await self.execute_post(self._get_hws_device_history_url(), payload, "get_todays_hws_energy", 200)
 
-        if history is None:
+        if not history or "historyDataList" not in history:
             return None
-        if "historyDataList" not in history:
-            return None
-        history_items = history["historyDataList"]
-        todays_item = None
-        for item in history_items:
-            if "dataTime" not in item:
-                continue
-            if item["dataTime"] != today:
-                continue
-            todays_item = HwsConsumption(item)
-            break
-        return todays_item
+        for item in history["historyDataList"]:
+            if item.get("dataTime") == today:
+                return HwsConsumption(item)
+        return None

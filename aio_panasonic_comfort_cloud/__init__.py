@@ -11,8 +11,7 @@ from .panasonicdevice import (
     PanasonicDeviceFeatures,
     PanasonicDeviceParameters,
     PanasonicDeviceZone,
-    PanasonicDeviceEnergy,
-)
+    PanasonicDeviceEnergy)
 from .aquareadevice import AquareaDevice
 from .models.aquarea import (
     AquareaDeviceParameters,
@@ -21,11 +20,21 @@ from .models.aquarea import (
     AquareaConsumption,
 )
 from .hwsdevice import HwsDevice
-from .models.hws import HwsDeviceParameters
-from .models.hws import HwsConsumption
+from .models.hws import (
+    HwsDeviceParameters,
+    HwsParameters,
+    HwsDailySettings,
+    HwsConsumption,
+)
 from .panasonicsession import PanasonicSession
 from .panasonicsettings import PanasonicSettings
 
-from .exceptions import Error, LoginError, RequestError, ResponseError, MFARequiredError
+from .exceptions import (
+    Error,
+    LoginError,
+    RequestError,
+    ResponseError,
+    MFARequiredError
+)
 
 from . import constants

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+
 from .panasonicdevice import PanasonicDeviceInfo
 from .models.hws import HwsDeviceParameters, HwsParameters
 from .exceptions import DeviceIsNotReadyError
@@ -8,19 +9,18 @@ class HwsDevice:
     """A standalone Heat Pump Hot Water tank device (deviceType "11", e.g.
     HE-UM40CR).
 
-    Mirrors :class:`AquareaDevice`/:class:`PanasonicDevice`, 
-    This reads the data from the /hphw/deviceInfo endpoint and stores the 
-    device parameters and the current parameters in the :class:`HwsDeviceParameters` and :class:`HwsParameters` objects, respectively.
+    Mirrors :class:`AquareaDevice`/:class:`PanasonicDevice`. Built from the
+    ``/hphw/deviceStatus`` response: the top level holds the fixed device
+    capabilities (:class:`HwsDeviceParameters`) and the nested ``parameters``
+    object holds the current state (:class:`HwsParameters`).
     """
 
     def __init__(self, info: PanasonicDeviceInfo, json=None) -> None:
         self._info = info
-        self._deviceParameters: HwsDeviceParameters | None = None
+        self._device_parameters: HwsDeviceParameters | None = None
         self._parameters: HwsParameters | None = None
         self._last_update = datetime.now(timezone.utc)
-        self._load_device_parameters(json)
-        self._load_parameters(json)
-
+        self.load(json)
 
     @property
     def id(self) -> str:
@@ -31,10 +31,10 @@ class HwsDevice:
         return self._info
 
     @property
-    def deviceParameters(self) -> HwsDeviceParameters:
-        if self._deviceParameters is None:
+    def device_parameters(self) -> HwsDeviceParameters:
+        if self._device_parameters is None:
             raise DeviceIsNotReadyError
-        return self._deviceParameters
+        return self._device_parameters
 
     @property
     def parameters(self) -> HwsParameters:
@@ -46,43 +46,27 @@ class HwsDevice:
     def last_update(self) -> datetime:
         return self._last_update
 
-    def _load_device_parameters(self, json) -> bool:
-        """Load/refresh the device parameters.  These are actually immutable with the API, but detail
-        what the acceptible temperature ranges are for the mutable parameters.  Returns True if the device parameters 
-        were loaded for the first time or changed."""
-        if not json:
-            return False
-
-        has_changed = False
-        if not self._deviceParameters:
-            self._deviceParameters = HwsDeviceParameters(json)
-            has_changed = True
-        else:
-            has_changed = self._deviceParameters.load(json)
-        return has_changed    
-
-    def _load_parameters(self, json) -> bool:
-        """Load/refresh the current parameters.  Returns True if the parameters were loaded for the first time or changed."""
-        parameters_json = json.get("parameters")
-        if not parameters_json:
-            return False
-        has_changed = False
-        if not self._parameters:
-            self._parameters = HwsParameters(parameters_json)
-            has_changed = True
-        else:
-            has_changed = self._parameters.load(parameters_json)
-        return has_changed
-
     def load(self, json) -> bool:
-        """Load/refresh from the top level of the json returned by the API.
-        Updates the device parameters and the current parameters, and updates the last_update timestamp if any changes were made.
-        Returns True if there was json returned from the API""" 
+        """Load/refresh from a ``/hphw/deviceStatus`` response. Returns True
+        if anything changed."""
         if not json:
             return False
+
         has_changed = False
-        has_changed = True if self._load_device_parameters(json) else has_changed
-        has_changed = True if self._load_parameters(json) else has_changed
+        if not self._device_parameters:
+            self._device_parameters = HwsDeviceParameters(json)
+            has_changed = True
+        else:
+            has_changed = self._device_parameters.load(json) or has_changed
+
+        parameters_json = json.get('parameters')
+        if parameters_json:
+            if not self._parameters:
+                self._parameters = HwsParameters(parameters_json)
+                has_changed = True
+            else:
+                has_changed = self._parameters.load(parameters_json) or has_changed
+
         if has_changed:
             self._last_update = datetime.now(timezone.utc)
-        return True
+        return has_changed

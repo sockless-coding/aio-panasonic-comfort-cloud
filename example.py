@@ -4,12 +4,11 @@ import argparse
 import asyncio
 import logging
 import os
-import json
+
 import aiohttp
-import time
+
 from aio_panasonic_comfort_cloud import ApiClient, constants
 from aio_panasonic_comfort_cloud.exceptions import AgreementNotAcceptedError, MFARequiredError
-from aio_panasonic_comfort_cloud.models.hws import HwsCustomEncoder
 
 
 def parse_args():
@@ -98,46 +97,31 @@ async def main(username: str, password: str, agreements_only: bool = False, use_
             # Get list of devices
             devices = client.get_devices()
             print(f"Found {len(devices)} device(s):")
-            print(" Looking for HWS devices")
-            if client.has_hws_devices :
-                hws_devices = client.hws_devices
-                hwsDevice=hws_devices[0]
-                myHwsDevice = await client.get_hws_device(hwsDevice)
-                print(f"\nFound HWS Device - Name is : {myHwsDevice.info.name}")
-                print(f": Tank Temperature is -  {myHwsDevice.parameters.tank_temperature}°C")
-                print(f": Operation mode is  -  {myHwsDevice.parameters.operation_mode}")
-                print(f": Boost mode is  -  {myHwsDevice.parameters.boost_mode}")
 
-                print(f": hpu Operation status is -  {myHwsDevice.parameters.hpu_operation_status}")
-                print("\n  Now checking for toady's consumpion ")
-                consumption = await client._async_get_todays_hws_consumption(myHwsDevice.info)
+            # --- Example: Read standalone Heat Pump Hot Water tanks (read-only) ---
+            for hws_info in client.hws_devices:
+                hws = await client.get_hws_device(hws_info)
+                params = hws.parameters
+                print(f"\n  HWS device: {hws.info.name}")
+                print(f"    Tank Temp:        {params.tank_temperature}°C")
+                print(f"    Outdoor Temp:     {params.outdoor_temperature}°C")
+                print(f"    Operation Mode:   {params.operation_mode.name}")
+                print(f"    Boost Mode:       {params.boost_mode.name}")
+                print(f"    Heat Pump:        {params.hpu_operation_status.name}")
+                for day in params.weekly_settings or []:
+                    weekday = day.weekday.name if day.weekday else "?"
+                    mode = day.mode.name if day.mode else "?"
+                    print(f"    {weekday:<10} {mode}")
+
+                consumption = await client.async_get_hws_consumption(hws.info)
                 if consumption:
-                    print(f"\n  Energy history for {myHwsDevice.info.guid} (Daily consumption for today):")
-                    print(f"    Consumption is  {consumption.tank_consumption}")
-                print("\n Turning on Holiday Mode")
-                await client.set_hws_holiday_mode(myHwsDevice.info)
-                time.sleep(10)
-                await client.try_update_hws_device(myHwsDevice)
-                print(f": Operation mode is  -  {myHwsDevice.parameters.operation_mode}")
-                time.sleep(10)
-                print("\n Turning on Schedule Mode")
-                await client.set_hws_schedule_mode(myHwsDevice.info)
-                time.sleep(10)
-                await client.try_update_hws_device(myHwsDevice)
-                print(f": Operation mode is  -  {myHwsDevice.parameters.operation_mode}")
-                # this checks that changes to the schedule can be sent to the device successfully.
-                print("\n writing  a change to the weekly schedule - changing the end time of the first set to 17")
-                if myHwsDevice.parameters.weeklySettings:
-                    if myHwsDevice.parameters.weeklySettings[0].set1:
-                        myHwsDevice.parameters.weeklySettings[0].set1.endTime = 17
-                        myHwsDevice.parameters.weeklySettings[0].set1.startTime = 51
-                        myHwsDevice.parameters.weeklySettings[0].set2.set2_available = True
-                        myHwsDevice.parameters.weeklySettings[0].set2.startTime = 17
-                        myHwsDevice.parameters.weeklySettings[0].set2.endTime = 20
-                        myHwsDevice.parameters.weeklySettings[0].set2.start_temperature = 40
-                        myHwsDevice.parameters.weeklySettings[0].set2.end_temperature = 50
+                    print(f"    Today's consumption: {consumption.tank_consumption}")
 
-                    #await client.async_set_hws_weekly_settings(myHwsDevice.info, myHwsDevice.parameters.weeklySettings)
+                # To change the device, e.g.:
+                #   await client.set_hws_operation_mode(hws.info, constants.HwsOperationMode.Holiday)
+                #   await client.set_hws_boost_mode(hws.info, constants.HwsBoostMode.On)
+                #   params.weekly_settings[0].set1.end_time = 17
+                #   await client.async_set_hws_weekly_settings(hws.info, params.weekly_settings)
 
             for device_info in devices:
                 print(f"\n  Device: {device_info.name}")
