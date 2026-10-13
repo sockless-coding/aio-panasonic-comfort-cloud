@@ -286,6 +286,10 @@ for doc in documents:
 # See what's already been accepted on this account
 accepted = await client.get_agreement_status()
 
+# Just the documents still awaiting acceptance (e.g. to show the user first)
+pending = await client.get_pending_agreements(include_content=True)
+await client.accept_agreements([{"type": d["type"], "version": d["version"]} for d in pending])
+
 # Auto-accept anything outdated/missing (Terms, Privacy, Cookie Policy —
 # the Turkey-only Service Agreement is intentionally excluded, matching
 # the official app's behavior of only surfacing it to a subset of accounts)
