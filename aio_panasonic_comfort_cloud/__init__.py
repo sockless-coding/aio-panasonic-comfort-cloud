@@ -26,6 +26,12 @@ from .models.hws import (
     HwsDailySettings,
     HwsConsumption,
 )
+from .models.weeklytimer import (
+    WeeklyTimer,
+    WeeklyTimerDay,
+    WeeklyTimerPattern,
+    WeeklyTimerZone,
+)
 from .panasonicsession import PanasonicSession
 from .panasonicsettings import PanasonicSettings
 

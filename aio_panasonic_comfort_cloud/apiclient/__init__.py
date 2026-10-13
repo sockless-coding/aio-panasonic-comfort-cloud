@@ -17,6 +17,7 @@ from ._energy import EnergyMixin
 from ._hws import HwsMixin
 from ._timezone import get_current_time_zone
 from ._urls import UrlsMixin
+from ._weeklytimer import WeeklyTimerMixin
 
 __all__ = ["ApiClient", "get_current_time_zone"]
 
@@ -31,6 +32,7 @@ class ApiClient(
         AirConditionerMixin,
         AquareaMixin,
         HwsMixin,
+        WeeklyTimerMixin,
         EnergyMixin):
     """Asynchronous client for the Panasonic Comfort Cloud API.
 

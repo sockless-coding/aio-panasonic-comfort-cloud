@@ -129,6 +129,43 @@ today = date.today().strftime("%Y%m%d")
 history = await client.history(device_info.id, constants.DataMode.Day, today)
 ```
 
+### Weekly Timer (Weekly Schedule)
+
+An air conditioner's weekly schedule holds seven days (Monday first) with up to six
+patterns per day. Each pattern has a start time (`HH:MM`) and the settings the unit
+switches to at that time. The whole schedule is written at once: read it, edit it,
+and send it back.
+
+```python
+from aio_panasonic_comfort_cloud import WeeklyTimerPattern, constants
+
+timer = await client.get_weekly_timer(device_info)
+
+for day in timer.days:
+    for pattern in day.patterns:
+        print(day.weekday.name, pattern.start_time, pattern.power, pattern.mode, pattern.temperature)
+
+monday = timer.day(constants.WeeklyTimerWeekday.Monday)
+monday.add_pattern(WeeklyTimerPattern(
+    start_time="06:30",
+    power=constants.Power.On,
+    mode=constants.OperationMode.Heat,
+    temperature=21.5,
+    fan_speed=constants.FanSpeed.Auto,
+))
+monday.remove_pattern("22:00")
+
+timer.enabled = True  # the app always enables the schedule when saving edits
+await client.set_weekly_timer(timer)
+
+# Turn the schedule on/off without touching its patterns
+await client.set_weekly_timer_enabled(device_info, False)
+```
+
+Pattern settings left as `None` aren't sent. Values the library doesn't model (for
+example the raw `mode` values 5 and 6 some units use) are kept and sent back unchanged;
+see `pattern.mode_raw` and `pattern.raw`.
+
 ## Aquarea (Air to Water heat pump) Support
 
 Aquarea units show up in the same account/group listing as air conditioners,
@@ -312,7 +349,17 @@ etc. without any special-casing in the library.
 
 ## Full Example
 
-See [`example.py`](example.py) for a complete working example.
+[`example.py`](example.py) is an interactive test tool. It logs in, lists every device
+on the account (air conditioners, Aquarea and HWS units) and opens a menu per device to
+read its status and try the library's calls, including the weekly timer editor.
+
+```bash
+python example.py -u you@example.com -p secret   # or set PANASONIC_USERNAME / PANASONIC_PASSWORD
+python example.py --oauth                         # log in through a browser instead
+python example.py --agreements-only               # only check/accept terms, then exit
+python example.py --debug                         # log every request and response
+python example.py --no-auto-power-on              # buffer changes while the unit is off
+```
 
 ## License
 
