@@ -99,6 +99,17 @@ class StatusDataMode(Enum):
     CACHED = 1
 
 
+class WeeklyTimerWeekday(Enum):
+    """Position of a day in the AC weekly timer's ``weeklyTimerList``."""
+    Monday = 0
+    Tuesday = 1
+    Wednesday = 2
+    Thursday = 3
+    Friday = 4
+    Saturday = 5
+    Sunday = 6
+
+
 # --- Aquarea (Air to Water heat pump) ---
 # Device type "2" in the group listing identifies an Aquarea unit.
 AQUAREA_DEVICE_TYPE = "2"

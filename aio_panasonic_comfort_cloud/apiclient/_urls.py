@@ -50,6 +50,16 @@ class UrlsMixin:
             base_url=constants.BASE_PATH_ACC
         )
 
+    def _get_weekly_timer_url(self, guid=None):
+        if guid is None:
+            return '{base_url}/weeklyTimer'.format(
+                base_url=constants.BASE_PATH_ACC
+            )
+        return '{base_url}/weeklyTimer/{guid}'.format(
+            base_url=constants.BASE_PATH_ACC,
+            guid=self._prepare_device_guid(guid)
+        )
+
     def _get_device_history_url(self):
         return '{base_url}/deviceHistoryData'.format(
             base_url=constants.BASE_PATH_ACC,
