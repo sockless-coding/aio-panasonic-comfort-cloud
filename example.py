@@ -98,6 +98,31 @@ async def main(username: str, password: str, agreements_only: bool = False, use_
             devices = client.get_devices()
             print(f"Found {len(devices)} device(s):")
 
+            # --- Example: Read standalone Heat Pump Hot Water tanks (read-only) ---
+            for hws_info in client.hws_devices:
+                hws = await client.get_hws_device(hws_info)
+                params = hws.parameters
+                print(f"\n  HWS device: {hws.info.name}")
+                print(f"    Tank Temp:        {params.tank_temperature}°C")
+                print(f"    Outdoor Temp:     {params.outdoor_temperature}°C")
+                print(f"    Operation Mode:   {params.operation_mode.name}")
+                print(f"    Boost Mode:       {params.boost_mode.name}")
+                print(f"    Heat Pump:        {params.hpu_operation_status.name}")
+                for day in params.weekly_settings or []:
+                    weekday = day.weekday.name if day.weekday else "?"
+                    mode = day.mode.name if day.mode else "?"
+                    print(f"    {weekday:<10} {mode}")
+
+                consumption = await client.async_get_hws_consumption(hws.info)
+                if consumption:
+                    print(f"    Today's consumption: {consumption.tank_consumption}")
+
+                # To change the device, e.g.:
+                #   await client.set_hws_operation_mode(hws.info, constants.HwsOperationMode.Holiday)
+                #   await client.set_hws_boost_mode(hws.info, constants.HwsBoostMode.On)
+                #   params.weekly_settings[0].set1.end_time = 17
+                #   await client.async_set_hws_weekly_settings(hws.info, params.weekly_settings)
+
             for device_info in devices:
                 print(f"\n  Device: {device_info.name}")
                 print(f"    ID:     {device_info.id}")

@@ -20,7 +20,12 @@ from .models.aquarea import (
     AquareaConsumption,
 )
 from .hwsdevice import HwsDevice
-from .models.hws import HwsDeviceParameters
+from .models.hws import (
+    HwsDeviceParameters,
+    HwsParameters,
+    HwsDailySettings,
+    HwsConsumption,
+)
 from .panasonicsession import PanasonicSession
 from .panasonicsettings import PanasonicSettings
 

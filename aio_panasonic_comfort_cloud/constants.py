@@ -194,13 +194,57 @@ class AquareaDataMode(Enum):
 # --- HWS (standalone Heat Pump Hot Water tank, e.g. HE-UM40CR) ---
 # Device type "11" in the group listing identifies a standalone hot-water
 # heat pump unit. Unlike Aquarea combi units (type "2"), these report a flat
-# tankTemperature/hpuOperationStatus/operationMode/boostMode set inside the
-# normal "parameters" object (so they look superficially like an air
-# conditioner), but they don't support the AC deviceStatus/deviceHistoryData
-# endpoints — those 403 for this device class. Confirmed against a real
-# HE-UM40CR device/group response; reported by a user, not yet independently
-# reverse-engineered from the app.
+# tankTemperature/hpuOperationStatus/operationMode/boostMode set inside a
+# "parameters" object (so they look superficially like an air conditioner),
+# but the AC deviceStatus/deviceHistoryData endpoints 403 for this device
+# class. They have their own /hphw/deviceStatus, /hphw/deviceStatus/control
+# and /hphw/deviceHistoryData endpoints instead, confirmed against a real
+# HE-UM40CR.
 HWS_DEVICE_TYPE = "11"
+
+
+class HwsOperationStatus(Enum):
+    """Whether the heat pump unit is currently running (read-only)."""
+    Off = 0
+    On = 1
+    Unknown = 2
+
+
+class HwsOperationMode(Enum):
+    """Operation mode of an HWS device."""
+    Schedule = 0
+    # Only useful when the unit is wired to an inverter output signalling
+    # that PV production is active
+    PVTimer = 1
+    Holiday = 2
+
+
+class HwsBoostMode(Enum):
+    Off = 0
+    On = 1
+
+
+class HwsWeekday(Enum):
+    Monday = 1
+    Tuesday = 2
+    Wednesday = 3
+    Thursday = 4
+    Friday = 5
+    Saturday = 6
+    Sunday = 7
+
+
+class HwsDailyMode(Enum):
+    """Heating mode for one day of the weekly schedule."""
+    Timer = 0
+    Continuous = 1
+
+
+class HwsDataMode(Enum):
+    """dataMode values for the HWS /hphw/deviceHistoryData endpoint."""
+    Day = 0
+    Month = 1
+    Year = 2
 
 
 INVALID_TEMPERATURE = 126
