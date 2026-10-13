@@ -14,11 +14,12 @@ _LOGGER = logging.getLogger(__name__)
 class AgreementsMixin(ApiClientCore):
     """Agreement / terms acceptance.
 
-    The app (v4.4.0) exclusively uses the "v2" agreement API below; the v1
+    The app (v4.4.0) exclusively uses the "v2" agreement API below. The v1
     endpoints (`check_agreement_status`/`accept_agreement`, hitting
-    `/auth/agreement/status/{type}`) do not appear anywhere in the current
-    app and are kept only for backward compatibility — prefer the v2
-    methods (`get_agreement_documents`/`get_agreement_status`/
+    `/auth/agreement/status/{type}`) are no longer served — the gateway
+    answers 403 "Missing Authentication Token", i.e. no such route. They're
+    kept only so existing callers fail loudly; use the v2 methods
+    (`get_pending_agreements`/`get_agreement_documents`/`get_agreement_status`/
     `accept_agreements`/`ensure_all_agreements_accepted`).
     """
 
@@ -115,40 +116,63 @@ class AgreementsMixin(ApiClientCore):
             200
         )
 
-    async def ensure_all_agreements_accepted(self, language: int = 0):
-        """Fetch the latest agreement documents and accept anything outdated or missing.
+    async def get_pending_agreements(self, language: int = 0, include_content: bool = False):
+        """Get the agreement documents this account still needs to accept.
 
-        Auto-accepts Terms & Conditions, Privacy Policy and Cookie Policy.
-        The Turkey Service Agreement is intentionally left out — like the
-        official app, it only applies to a subset of accounts and should be
-        a deliberate, user-driven choice rather than an automatic one.
+        Compares the latest documents against the account's accepted
+        versions. The Turkey Service Agreement (type 3) is always left out:
+        the documents endpoint lists it for every account, but like the
+        official app we only accept the generally applicable agreements —
+        submitting it for an account it doesn't apply to has been seen to
+        get the whole acceptance request rejected with HTTP 400.
 
-        Raises:
-            AgreementNotAcceptedError: If the outdated/missing agreements
-                could not be accepted.
+        Args:
+            language: Language id understood by the API (0 = default/English).
+            include_content: If True, each entry includes the document text
+                in its "content" field.
+
+        Returns:
+            A list of document dicts (as returned by
+            :meth:`get_agreement_documents`, but with ``type`` as an int).
+            Pass ``{"type": d["type"], "version": d["version"]}`` for each
+            entry to :meth:`accept_agreements` to accept them.
         """
-        auto_accept_types = {
+        acceptable_types = {
             self.AGREEMENT_TYPE_TERMS,
             self.AGREEMENT_TYPE_PRIVACY,
             self.AGREEMENT_TYPE_COOKIE_POLICY,
         }
 
-        documents = await self.get_agreement_documents(language=language, include_content=False)
+        documents = await self.get_agreement_documents(language=language, include_content=include_content)
         accepted = await self.get_agreement_status()
         accepted_versions = {item.get("type"): item.get("version") for item in accepted}
 
-        to_accept = []
+        pending = []
         for document in documents:
             try:
                 doc_type = int(document.get("type"))
             except (TypeError, ValueError):
                 continue
-            if doc_type not in auto_accept_types:
+            if doc_type not in acceptable_types:
                 continue
             latest_version = document.get("version")
             if latest_version is None or accepted_versions.get(doc_type) == latest_version:
                 continue
-            to_accept.append({"type": doc_type, "version": latest_version})
+            pending.append({**document, "type": doc_type})
+        return pending
+
+    async def ensure_all_agreements_accepted(self, language: int = 0):
+        """Fetch the latest agreement documents and accept anything outdated or missing.
+
+        Auto-accepts Terms & Conditions, Privacy Policy and Cookie Policy
+        (see :meth:`get_pending_agreements`).
+
+        Raises:
+            AgreementNotAcceptedError: If the outdated/missing agreements
+                could not be accepted.
+        """
+        pending = await self.get_pending_agreements(language=language)
+        to_accept = [{"type": doc["type"], "version": doc["version"]} for doc in pending]
 
         if not to_accept:
             return

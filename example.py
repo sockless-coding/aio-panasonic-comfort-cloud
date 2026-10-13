@@ -795,10 +795,20 @@ async def login(client: ApiClient, use_oauth: bool):
 
 async def check_agreements(client: ApiClient):
     heading("Agreements")
-    for type_id, type_name in ((client.AGREEMENT_TYPE_TERMS, "Terms & Conditions"),
-                               (client.AGREEMENT_TYPE_PRIVACY, "Privacy Policy")):
-        status = await client.check_agreement_status(type_id)
-        print(f"  {type_name}: {'accepted' if status == 1 else 'NOT accepted'}")
+    type_names = {client.AGREEMENT_TYPE_TERMS: "Terms & Conditions",
+                  client.AGREEMENT_TYPE_PRIVACY: "Privacy Policy",
+                  client.AGREEMENT_TYPE_SERVICE: "Service Agreement",
+                  client.AGREEMENT_TYPE_COOKIE_POLICY: "Cookie Policy"}
+    for item in await client.get_agreement_status():
+        print(f"  Accepted: {type_names.get(item.get('type'), item.get('type'))} v{item.get('version')}")
+    pending = await client.get_pending_agreements()
+    if not pending:
+        print("  All agreements are accepted.")
+        return
+    for doc in pending:
+        print(f"  Pending:  {type_names.get(doc['type'], doc['type'])} v{doc['version']}")
+    if not confirm("Accept the pending agreements?"):
+        return
     try:
         await client.ensure_all_agreements_accepted()
         print("  All agreements are accepted.")
