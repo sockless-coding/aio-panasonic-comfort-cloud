@@ -106,6 +106,20 @@ changes waiting to be applied.
 | **AirSwingLR** | `Auto`, `Left`, `LeftMid`, `Mid`, `RightMid`, `Right`, `Unavailable` |
 | **NanoeMode** | `Unavailable`, `Off`, `On`, `ModeG`, `All` |
 
+### Device Capabilities
+
+Not every unit accepts every value. `PanasonicDevice` exposes what a unit
+supports, following the same rules as the Comfort Cloud app:
+
+- `supported_fan_speeds` — the accepted `FanSpeed` values. Room units get all
+  five steps; ducted/commercial ("CAC") units may be limited to Low/Mid/High or
+  have a fixed fan speed (empty list). Includes `Auto` only when `supports_fan_auto`.
+- `supports_fan_auto` — False for CAC units with a fixed fan speed or in Fan mode.
+- `supports_quiet_mode` / `supports_powerful_mode` — whether `EcoMode.Quiet` /
+  `EcoMode.Powerful` are available.
+- `supported_eco_modes` — `Auto` plus whichever of `Powerful`/`Quiet` the unit has.
+- `info.is_cac` — True for the CAC device types (`constants.CAC_DEVICE_TYPES`).
+
 ### ChangeRequestBuilder Methods
 
 - `set_power_mode(value)` — Set power on/off

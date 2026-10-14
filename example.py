@@ -152,6 +152,15 @@ def choose_enum(enum_type: type[E], current: E | None = None) -> E:
     return choose(f"{enum_type.__name__}:", options)
 
 
+def choose_member(enum_type: type[E], members: list[E], current: E | None = None) -> E:
+    """Like :func:`choose_enum`, limited to ``members``."""
+    options = [
+        (member.name + (" (current)" if member == current else ""), member)
+        for member in members
+    ]
+    return choose(f"{enum_type.__name__}:", options)
+
+
 def choose_optional_enum(enum_type: type[E], current: E | None = None) -> E | None:
     """Like :func:`choose_enum`, with an extra entry that returns None."""
     options: list[tuple[str, E | None]] = [
@@ -234,7 +243,9 @@ class AirConditionerMenu:
             ("Inside temp", f"{params.inside_temperature}°C" if device.has_inside_temperature else None),
             ("Outside temp", f"{params.outside_temperature}°C" if device.has_outside_temperature else None),
             ("Fan speed", params.fan_speed),
+            ("Fan speeds", ", ".join(s.name for s in device.supported_fan_speeds) or "fixed"),
             ("Eco mode", params.eco_mode),
+            ("Eco modes", ", ".join(m.name for m in device.supported_eco_modes)),
             ("Vertical swing", params.vertical_swing_mode),
             ("Horizontal swing", params.horizontal_swing_mode if device.has_horizontal_swing else None),
         ]
@@ -281,11 +292,13 @@ class AirConditionerMenu:
         await self.change(lambda b: b.set_target_temperature(value))
 
     async def set_fan_speed(self):
-        value = choose_enum(constants.FanSpeed, self.device.parameters.fan_speed)
+        value = choose_member(constants.FanSpeed, self.device.supported_fan_speeds,
+                              self.device.parameters.fan_speed)
         await self.change(lambda b: b.set_fan_speed(value))
 
     async def set_eco_mode(self):
-        value = choose_enum(constants.EcoMode, self.device.parameters.eco_mode)
+        value = choose_member(constants.EcoMode, self.device.supported_eco_modes,
+                              self.device.parameters.eco_mode)
         await self.change(lambda b: b.set_eco_mode(value))
 
     async def set_vertical_swing(self):
@@ -361,10 +374,12 @@ class AirConditionerMenu:
             ("Toggle power", self.toggle_power),
             ("Set mode", self.set_mode),
             ("Set target temperature", self.set_temperature),
-            ("Set fan speed", self.set_fan_speed),
-            ("Set eco mode (Auto/Powerful/Quiet)", self.set_eco_mode),
-            ("Set vertical swing", self.set_vertical_swing),
         ]
+        if device.supported_fan_speeds:
+            entries.append(("Set fan speed", self.set_fan_speed))
+        if len(device.supported_eco_modes) > 1:
+            entries.append(("Set eco mode (Auto/Powerful/Quiet)", self.set_eco_mode))
+        entries.append(("Set vertical swing", self.set_vertical_swing))
         if device.has_horizontal_swing:
             entries.append(("Set horizontal swing", self.set_horizontal_swing))
         if device.has_nanoe:

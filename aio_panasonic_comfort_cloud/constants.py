@@ -99,6 +99,18 @@ class StatusDataMode(Enum):
     CACHED = 1
 
 
+# Air conditioner device types the Comfort Cloud app treats as "CAC" (ducted /
+# commercial) units rather than "RAC" room units. The app limits these to the
+# fan speeds given by the device's ``fanSpeedMode`` and hides Quiet/Powerful,
+# EcoFunction, nanoe and horizontal swing for them.
+CAC_DEVICE_TYPES = ("4", "5", "6", "8", "9", "10")
+
+# Values of the device-level ``fanSpeedMode`` field (CAC units only).
+FAN_SPEED_MODE_NONE = 0
+FAN_SPEED_MODE_3_STEP = 3
+FAN_SPEED_MODE_5_STEP = 5
+
+
 class WeeklyTimerWeekday(Enum):
     """Position of a day in the AC weekly timer's ``weeklyTimerList``."""
     Monday = 0
