@@ -26,6 +26,8 @@ import aiohttp
 from aio_panasonic_comfort_cloud import (
     ApiClient,
     AquareaDevice,
+    AquareaWeeklyTimer,
+    AquareaWeeklyTimerPattern,
     HwsDevice,
     PanasonicDevice,
     PanasonicDeviceInfo,
@@ -395,6 +397,9 @@ class AirConditionerMenu:
 class WeeklyTimerMenu:
     """Edits the schedule locally; nothing is sent until "Save"."""
 
+    pattern_type = WeeklyTimerPattern
+    title = "Weekly timer"
+
     def __init__(self, client: ApiClient, device_info: PanasonicDeviceInfo, timer: WeeklyTimer):
         self.client = client
         self.info = device_info
@@ -405,15 +410,23 @@ class WeeklyTimerMenu:
     async def open(cls, client: ApiClient, device_info: PanasonicDeviceInfo):
         await cls(client, device_info, await client.get_weekly_timer(device_info)).run()
 
+    async def fetch(self):
+        return await self.client.get_weekly_timer(self.info)
+
+    async def send(self):
+        await self.client.set_weekly_timer(self.timer)
+
     async def reload(self):
-        self.timer = await self.client.get_weekly_timer(self.info)
+        self.timer = await self.fetch()
         self.dirty = False
+
+    def status_line(self) -> str:
+        return f"Enabled: {self.timer.enabled}   Can edit: {self.timer.can_edit}"
 
     def show(self):
         timer = self.timer
-        heading(f"Weekly timer: {self.info.name}")
-        print(f"  Enabled: {timer.enabled}   Can edit: {timer.can_edit}"
-              f"{'   (unsaved changes)' if self.dirty else ''}")
+        heading(f"{self.title}: {self.info.name}")
+        print(f"  {self.status_line()}{'   (unsaved changes)' if self.dirty else ''}")
         for day in timer.days:
             print(f"  {day.weekday.name}")
             if not day.patterns:
@@ -464,7 +477,7 @@ class WeeklyTimerMenu:
         pattern = self.build_pattern()
         for day in days:
             # Separate copy per day so later edits don't leak between days
-            day.add_pattern(WeeklyTimerPattern(pattern.to_dict()))
+            day.add_pattern(self.pattern_type(pattern.to_dict()))
         self.dirty = True
         print(f"  Added {self.describe(pattern)} to {', '.join(d.weekday.name for d in days)}.")
 
@@ -494,7 +507,7 @@ class WeeklyTimerMenu:
         targets = self.choose_days("Copy to which day(s)?")
         for target in targets:
             if target is not source:
-                target.set_patterns([WeeklyTimerPattern(p.to_dict()) for p in source.patterns])
+                target.set_patterns([self.pattern_type(p.to_dict()) for p in source.patterns])
         self.dirty = True
 
     async def toggle_enabled(self):
@@ -502,12 +515,15 @@ class WeeklyTimerMenu:
         self.dirty = True
         print(f"  Enabled will be {self.timer.enabled} once saved.")
 
-    async def save(self):
+    def warn_before_save(self):
         if not self.timer.can_edit:
             print(f"  Warning: permission {self.timer.permission} - the app wouldn't allow editing.")
+
+    async def save(self):
+        self.warn_before_save()
         if not confirm("Send this schedule to the device?"):
             return
-        await self.client.set_weekly_timer(self.timer)
+        await self.send()
         await self.reload()
         print("  Saved.")
         self.show()
@@ -537,9 +553,96 @@ class WeeklyTimerMenu:
     async def run(self):
         self.show()
         while True:
-            await run_menu("Weekly timer (edits are local until saved)", self.entries)
+            await run_menu(f"{self.title} (edits are local until saved)", self.entries)
             if not self.dirty or confirm("Leave without saving your changes?"):
                 return
+
+
+class AquareaWeeklyTimerMenu(WeeklyTimerMenu):
+    """Aquarea flavour of the schedule editor: a pattern holds one mode plus
+    the on/off state and setpoint of each zone and the tank."""
+
+    pattern_type = AquareaWeeklyTimerPattern
+    title = "Aquarea weekly timer"
+    timer: AquareaWeeklyTimer
+
+    def __init__(self, client: ApiClient, device: AquareaDevice, timer: AquareaWeeklyTimer):
+        super().__init__(client, device.info, timer)
+        self.device = device
+
+    @classmethod
+    async def open(cls, client: ApiClient, device: AquareaDevice):
+        await cls(client, device, await client.get_aquarea_weekly_timer(device.info)).run()
+
+    async def fetch(self):
+        return await self.client.get_aquarea_weekly_timer(self.info)
+
+    async def send(self):
+        await self.client.set_aquarea_weekly_timer(self.timer)
+
+    def status_line(self) -> str:
+        limits = [f"zone {zone.get('zoneId')} heat {zone.get('heatMin')}-{zone.get('heatMax')}"
+                  f" cool {zone.get('coolMin')}-{zone.get('coolMax')}" for zone in self.timer.zone_status]
+        tank = self.timer.tank_status
+        if tank:
+            limits.append(f"tank {tank.get('heatMin')}-{tank.get('heatMax')}")
+        return f"Enabled: {self.timer.enabled}   Ranges: {'; '.join(limits) or 'n/a'}"
+
+    def warn_before_save(self):
+        pass
+
+    @staticmethod
+    def describe(pattern: AquareaWeeklyTimerPattern) -> str:
+        mode = pattern.mode.name if pattern.mode else f"mode {pattern.mode_raw}"
+        parts = [pattern.start_time or "--:--", mode]
+        for zone_id in (1, 2):
+            on_off = pattern.zone_on_off(zone_id)
+            if on_off is None:
+                continue
+            text = f"zone{zone_id}={on_off.name}"
+            if on_off == constants.AquareaOperationStatus.On:
+                setpoints = [f"{label} {value}" for label, value in
+                             (("heat", pattern.zone_heat(zone_id)), ("cool", pattern.zone_cool(zone_id)))
+                             if value is not None]
+                if setpoints:
+                    text += f" ({', '.join(setpoints)})"
+            parts.append(text)
+        if pattern.tank_on_off is not None:
+            text = f"tank={pattern.tank_on_off.name}"
+            if pattern.tank_on_off == constants.AquareaOperationStatus.On and pattern.tank_temperature is not None:
+                text += f" ({pattern.tank_temperature}°C)"
+            parts.append(text)
+        return "  ".join(parts)
+
+    def build_pattern(self, start_time: str | None = None) -> AquareaWeeklyTimerPattern:
+        params = self.device.parameters
+        pattern = AquareaWeeklyTimerPattern(start_time=ask("Start time (HH:MM)", start_time))
+        modes = [constants.AquareaUpdateOperationMode.Heat]
+        if any(zone.supports_cooling for zone in params.zones):
+            modes += [constants.AquareaUpdateOperationMode.Cool, constants.AquareaUpdateOperationMode.Auto]
+        pattern.mode = choose("Mode:", [(mode.name, mode) for mode in modes])
+        on_off_values = [constants.AquareaOperationStatus.On, constants.AquareaOperationStatus.Off]
+        for zone in params.zones:
+            if zone.id not in (1, 2):
+                continue
+            on_off = choose(f"Zone {zone.id} {zone.name!r}:", [(value.name, value) for value in on_off_values])
+            heat = cool = None
+            if on_off == constants.AquareaOperationStatus.On:
+                limits = self.timer.zone_limits(zone.id) or {}
+                if pattern.mode != constants.AquareaUpdateOperationMode.Cool:
+                    heat = ask_int(f"Zone {zone.id} heat setpoint ({limits.get('heatMin')}-{limits.get('heatMax')})",
+                                   zone.heat_set)
+                if pattern.mode != constants.AquareaUpdateOperationMode.Heat and zone.supports_cooling:
+                    cool = ask_int(f"Zone {zone.id} cool setpoint ({limits.get('coolMin')}-{limits.get('coolMax')})",
+                                   zone.cool_set)
+            pattern.set_zone(zone.id, on_off, heat, cool)
+        if params.has_tank and params.tank:
+            pattern.tank_on_off = choose("Tank:", [(value.name, value) for value in on_off_values])
+            if pattern.tank_on_off == constants.AquareaOperationStatus.On:
+                tank = self.timer.tank_status or {}
+                pattern.tank_temperature = ask_int(
+                    f"Tank temperature ({tank.get('heatMin')}-{tank.get('heatMax')})", params.tank.heat_set)
+        return pattern
 
 
 # --- Aquarea -----------------------------------------------------------------
@@ -659,6 +762,10 @@ class AquareaMenu:
         if confirm("Request a defrost cycle?"):
             await self.set_and_refresh(self.client.request_aquarea_defrost(self.info))
 
+    async def weekly_timer(self):
+        await self.refresh()
+        await AquareaWeeklyTimerMenu.open(self.client, self.device)
+
     async def show_consumption(self):
         mode = choose_enum(constants.AquareaDataMode)
         day = ask("Date (YYYYMMDD)", date.today().strftime("%Y%m%d"))
@@ -691,6 +798,7 @@ class AquareaMenu:
             ]
         entries += [
             ("Request defrost", self.request_defrost),
+            ("Weekly timer...", self.weekly_timer),
             ("Consumption", self.show_consumption),
         ]
         return entries

@@ -261,12 +261,14 @@ class WeeklyTimerPattern:
 class WeeklyTimerDay:
     """The patterns of one weekday, kept sorted by start time."""
 
+    _pattern_type = WeeklyTimerPattern
+
     def __init__(self, weekday: constants.WeeklyTimerWeekday, json: dict | None = None) -> None:
         self._weekday = weekday
         self._json: dict = copy.deepcopy(json) if json else {}
         self._patterns = [
             pattern for pattern in
-            (WeeklyTimerPattern(pattern_json) for pattern_json in self._json.get('patternList') or [])
+            (self._pattern_type(pattern_json) for pattern_json in self._json.get('patternList') or [])
             if not pattern.is_empty
         ]
         self._sort()
@@ -300,7 +302,7 @@ class WeeklyTimerDay:
     def remove_pattern(self, pattern_or_start_time: WeeklyTimerPattern | str) -> bool:
         """Remove a pattern, by object or by its ``HH:MM`` start time.
         Returns False if nothing matched."""
-        if isinstance(pattern_or_start_time, WeeklyTimerPattern):
+        if isinstance(pattern_or_start_time, self._pattern_type):
             remaining = [p for p in self._patterns if p is not pattern_or_start_time]
         else:
             start_time = _normalize_start_time(pattern_or_start_time)
