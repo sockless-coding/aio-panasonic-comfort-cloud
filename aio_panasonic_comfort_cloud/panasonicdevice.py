@@ -141,6 +141,16 @@ class PanasonicDeviceInfo:
         return self._device_type == constants.HWS_DEVICE_TYPE
 
     @property
+    def is_cac(self):
+        """True for the ducted/commercial ("CAC") air conditioner types.
+
+        The Comfort Cloud app gives these a reduced control set: fan speeds
+        limited by ``fanSpeedMode``, and no Quiet/Powerful, EcoFunction,
+        nanoe or horizontal swing.
+        """
+        return self._device_type in constants.CAC_DEVICE_TYPES
+
+    @property
     def raw(self):
         return dict(self._raw) if self._raw else None
     
@@ -580,9 +590,76 @@ class PanasonicDevice:
         # and when airDirection says the left/right louver is disabled.
         if self._info.device_type == "7":
             return True
-        if self._info.device_type in ("4", "5", "6", "8", "9", "10"):
+        if self._info.is_cac:
             return False
         return self._parameters.air_direction not in (1, 3)
+
+    @property
+    def supports_fan_auto(self) -> bool:
+        """Whether ``FanSpeed.Auto`` can be selected right now.
+
+        Mirrors the Comfort Cloud app: CAC units have no Auto fan speed when
+        their fan speed is fixed (``fanSpeedMode`` 0) or while in Fan mode.
+        Room units always support it.
+        """
+        if not self._info.is_cac:
+            return True
+        if self._features is not None and self._features.fan_speed_mode == constants.FAN_SPEED_MODE_NONE:
+            return False
+        return self._parameters is None or self._parameters.mode != constants.OperationMode.Fan
+
+    @property
+    def supported_fan_speeds(self) -> list[constants.FanSpeed]:
+        """The fan speeds this unit accepts, including ``Auto`` when
+        :attr:`supports_fan_auto` allows it.
+
+        Room units get all five steps. CAC units follow ``fanSpeedMode``:
+        0 means the fan speed can't be changed (empty list), 3 means only
+        Low/Mid/High, and 5 (or a missing value) means all five steps.
+        """
+        speeds = [
+            constants.FanSpeed.Low,
+            constants.FanSpeed.LowMid,
+            constants.FanSpeed.Mid,
+            constants.FanSpeed.HighMid,
+            constants.FanSpeed.High,
+        ]
+        if self._info.is_cac and self._features is not None:
+            match self._features.fan_speed_mode:
+                case constants.FAN_SPEED_MODE_NONE:
+                    return []
+                case constants.FAN_SPEED_MODE_3_STEP:
+                    speeds = [constants.FanSpeed.Low, constants.FanSpeed.Mid, constants.FanSpeed.High]
+        if self.supports_fan_auto:
+            speeds.insert(0, constants.FanSpeed.Auto)
+        return speeds
+
+    @property
+    def supports_quiet_mode(self) -> bool:
+        """Whether the unit has Quiet mode (``EcoMode.Quiet``). The app hides
+        it for CAC units and when the ``quietMode`` flag is false."""
+        if self._features is None or self._info.is_cac:
+            return False
+        return bool(self._features.quiet_mode)
+
+    @property
+    def supports_powerful_mode(self) -> bool:
+        """Whether the unit has Powerful mode (``EcoMode.Powerful``). The app
+        hides it for CAC units and when the ``powerfulMode`` flag is false."""
+        if self._features is None or self._info.is_cac:
+            return False
+        return bool(self._features.powerful_mode)
+
+    @property
+    def supported_eco_modes(self) -> list[constants.EcoMode]:
+        """The eco modes this unit accepts: always ``Auto`` (normal), plus
+        ``Powerful``/``Quiet`` when supported."""
+        modes = [constants.EcoMode.Auto]
+        if self.supports_powerful_mode:
+            modes.append(constants.EcoMode.Powerful)
+        if self.supports_quiet_mode:
+            modes.append(constants.EcoMode.Quiet)
+        return modes
     
     @property
     def has_inside_temperature(self):
@@ -671,6 +748,8 @@ class PanasonicDeviceFeatures:
         self._paired_flag: bool = False
         self._device_nanoe: int = 0
         self._mode_avl_list: dict | None = None
+        self._fan_speed_mode: int | None = None
+        self._fan_direction_mode: int | None = None
 
         self._has_changed = False
         self.load(json)
@@ -929,7 +1008,31 @@ class PanasonicDeviceFeatures:
         self._mode_avl_list = value
         self._has_changed = True
 
-    def load(self, json) -> bool:        
+    @property
+    def fan_speed_mode(self):
+        """Raw ``fanSpeedMode`` (CAC units): 0 = fixed, 3 = three steps,
+        5 = five steps. ``None`` when the API doesn't send it."""
+        return self._fan_speed_mode
+    @fan_speed_mode.setter
+    def fan_speed_mode(self, value):
+        if self._fan_speed_mode == value:
+            return
+        self._fan_speed_mode = value
+        self._has_changed = True
+
+    @property
+    def fan_direction_mode(self):
+        """Raw ``fanDirectionMode`` (CAC units): 0 = no swing control,
+        3 = limited, 5 = swing available. ``None`` when not sent."""
+        return self._fan_direction_mode
+    @fan_direction_mode.setter
+    def fan_direction_mode(self, value):
+        if self._fan_direction_mode == value:
+            return
+        self._fan_direction_mode = value
+        self._has_changed = True
+
+    def load(self, json) -> bool:
         if not json:
             return False
         self._has_changed = False
@@ -985,6 +1088,10 @@ class PanasonicDeviceFeatures:
             self.device_nanoe = json['deviceNanoe']
         if 'modeAvlList' in json:
             self.mode_avl_list = json['modeAvlList']
+        if 'fanSpeedMode' in json:
+            self.fan_speed_mode = json['fanSpeedMode']
+        if 'fanDirectionMode' in json:
+            self.fan_direction_mode = json['fanDirectionMode']
 
         has_changed = self._has_changed
         self._has_changed = False
