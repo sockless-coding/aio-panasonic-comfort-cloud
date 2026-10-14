@@ -235,6 +235,38 @@ for entry in consumption:
 `set_aquarea_special_status` is unverified/best-effort like the HWS control
 methods above — see its docstring for why.
 
+### Aquarea Weekly Timer
+
+Aquarea has its own weekly schedule, separate from the air conditioners'
+`/weeklyTimer`. It has the same layout: seven days (Monday first), each with up to six
+patterns. An Aquarea pattern has a start time, one operation mode for the unit, and
+the on/off state and setpoint of zone 1, zone 2 and the tank. Leave the settings of
+a zone or tank the unit doesn't have as `None`. The response also holds the allowed
+setpoint ranges.
+
+```python
+from aio_panasonic_comfort_cloud import AquareaWeeklyTimerPattern, constants
+
+timer = await client.get_aquarea_weekly_timer(device_info)
+print(timer.enabled, timer.zone_limits(1), timer.tank_status)
+
+pattern = AquareaWeeklyTimerPattern(start_time="06:00", mode=constants.AquareaUpdateOperationMode.Heat)
+pattern.set_zone(1, constants.AquareaOperationStatus.On, heat=22)
+pattern.tank_on_off = constants.AquareaOperationStatus.On
+pattern.tank_temperature = 50
+
+for day in timer.days[:5]:  # Monday-Friday
+    day.add_pattern(AquareaWeeklyTimerPattern(pattern.to_dict()))
+
+timer.enabled = True  # the app always enables the schedule when saving edits
+await client.set_aquarea_weekly_timer(timer)
+
+await client.set_aquarea_weekly_timer_enabled(device_info, False)
+```
+
+This follows the official app's requests but hasn't been tested against a real
+unit yet.
+
 ## HWS (Standalone Heat Pump Hot Water Tank) Support
 
 Some accounts have a standalone hot water heat pump (e.g. an HE-UM40CR),

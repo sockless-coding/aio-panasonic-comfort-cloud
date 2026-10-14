@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from .. import constants
 from ..aquareadevice import AquareaDevice
 from ..models.aquarea import AquareaConsumption
+from ..models.aquareaweeklytimer import AquareaWeeklyTimer
 from ..panasonicdevice import PanasonicDeviceInfo
 from ._timezone import get_current_time_zone
 
@@ -13,6 +14,8 @@ else:
     ApiClientCore = object
 
 _LOGGER = logging.getLogger(__name__)
+
+_WEEKLY_TIMER_API = "/remote/v1/api/data/weeklyTimer"
 
 
 class AquareaMixin(ApiClientCore):
@@ -276,6 +279,53 @@ class AquareaMixin(ApiClientCore):
         if zone_updates:
             body["zoneStatus"] = zone_updates
         await self._async_set_aquarea(device.info, body)
+
+    async def _async_get_aquarea_weekly_timer_json(self, device_info: PanasonicDeviceInfo) -> dict:
+        payload = {
+            "apiName": f"{_WEEKLY_TIMER_API}?gwid={device_info.guid}",
+            "requestMethod": "GET"
+        }
+        return await self.execute_post(
+            self._get_aquarea_request_url(), payload, "get_aquarea_weekly_timer", 200)
+
+    async def get_aquarea_weekly_timer(self, device_info: PanasonicDeviceInfo) -> AquareaWeeklyTimer:
+        """ Fetch the weekly schedule of an Aquarea heat pump.
+
+        Aquarea doesn't use the air conditioners' /weeklyTimer endpoint; the
+        app reads and writes /remote/v1/api/data/weeklyTimer through the
+        common/transfer proxy instead. The response also holds the allowed
+        setpoint ranges per zone and for the tank.
+        """
+        json_response = await self._async_get_aquarea_weekly_timer_json(device_info)
+        return AquareaWeeklyTimer(device_info.guid, json_response)
+
+    async def try_update_aquarea_weekly_timer(self, device_info: PanasonicDeviceInfo, weekly_timer: AquareaWeeklyTimer) -> bool:
+        """ Refresh an :class:`AquareaWeeklyTimer`. Returns True if anything
+        changed. Unsaved local edits are discarded. """
+        json_response = await self._async_get_aquarea_weekly_timer_json(device_info)
+        return weekly_timer.load(json_response)
+
+    async def set_aquarea_weekly_timer(self, weekly_timer: AquareaWeeklyTimer):
+        """ Replace the device's weekly schedule with `weekly_timer`,
+        including its :attr:`AquareaWeeklyTimer.enabled` flag.
+
+        Note that the app always enables the schedule when saving edits; set
+        ``weekly_timer.enabled = True`` to do the same.
+        """
+        payload = {
+            "apiName": _WEEKLY_TIMER_API,
+            "requestMethod": "POST",
+            "bodyParam": weekly_timer.to_dict()
+        }
+        await self.execute_post(self._get_aquarea_request_url(), payload, "set_aquarea_weekly_timer", 200)
+
+    async def set_aquarea_weekly_timer_enabled(self, device_info: PanasonicDeviceInfo, enabled: bool) -> AquareaWeeklyTimer:
+        """ Turn the weekly schedule on or off, keeping its patterns.
+        Returns the schedule as sent. """
+        weekly_timer = await self.get_aquarea_weekly_timer(device_info)
+        weekly_timer.enabled = enabled
+        await self.set_aquarea_weekly_timer(weekly_timer)
+        return weekly_timer
 
     async def async_get_aquarea_consumption(self, device_info: PanasonicDeviceInfo, data_mode: str | constants.AquareaDataMode, date: str) -> list[AquareaConsumption]:
         """ Get Aquarea energy consumption/cost history, broken down by heat/cool/tank.

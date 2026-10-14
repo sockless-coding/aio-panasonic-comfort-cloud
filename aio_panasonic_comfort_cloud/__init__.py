@@ -19,6 +19,11 @@ from .models.aquarea import (
     AquareaZoneStatus,
     AquareaConsumption,
 )
+from .models.aquareaweeklytimer import (
+    AquareaWeeklyTimer,
+    AquareaWeeklyTimerDay,
+    AquareaWeeklyTimerPattern,
+)
 from .hwsdevice import HwsDevice
 from .models.hws import (
     HwsDeviceParameters,
