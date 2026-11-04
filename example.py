@@ -751,8 +751,9 @@ class AquareaMenu:
         await self.set_and_refresh(self.client.set_aquarea_tank_temperature(self.info, value))
 
     async def set_tank_operation(self):
+        await self.refresh()  # the request resends the current zone status
         value = choose_enum(constants.AquareaOperationStatus, self.require_tank().operation_status)
-        await self.set_and_refresh(self.client.set_aquarea_tank_operation_status(self.info, value))
+        await self.set_and_refresh(self.client.set_aquarea_tank_operation_status(self.device, value))
 
     def choose_zone(self):
         """Returns (zone id, zone)."""
@@ -769,9 +770,10 @@ class AquareaMenu:
         await self.set_and_refresh(self.client.set_aquarea_zone_temperature(self.info, zone_id, value, mode))
 
     async def set_zone_operation(self):
+        await self.refresh()  # switching on resends the current operation mode
         zone_id, zone = self.choose_zone()
         value = choose_enum(constants.AquareaOperationStatus, zone.operation_status)
-        await self.set_and_refresh(self.client.set_aquarea_zone_operation_status(self.info, zone_id, value))
+        await self.set_and_refresh(self.client.set_aquarea_zone_operation_status(self.device, zone_id, value))
 
     async def request_defrost(self):
         if confirm("Request a defrost cycle?"):
