@@ -213,10 +213,21 @@ from aio_panasonic_comfort_cloud import constants
 await client.set_aquarea_operation_status(device_info, constants.AquareaOperationStatus.On)
 await client.set_aquarea_operation_mode(device_info, constants.AquareaUpdateOperationMode.Heat)
 await client.set_aquarea_tank_temperature(device_info, 55)
-await client.set_aquarea_tank_operation_status(device_info, constants.AquareaOperationStatus.On)
 await client.set_aquarea_zone_temperature(device_info, zone_id=1, temperature=22, mode="heat")
 await client.set_aquarea_quiet_mode(device_info, constants.AquareaQuietMode.Level1)
 await client.set_aquarea_force_dhw(device_info, constants.AquareaForceDHW.On)
+```
+
+Tank and zone on/off follow the official app's request shape: changing the
+tank also resends every zone's current on/off status, and switching the tank
+or a zone on also sends the current operation mode. Pass a recently refreshed
+`AquareaDevice` (if you pass a `PanasonicDeviceInfo`, the status is fetched
+first):
+
+```python
+device = await client.get_aquarea_device(device_info)
+await client.set_aquarea_tank_operation_status(device, constants.AquareaOperationStatus.Off)
+await client.set_aquarea_zone_operation_status(device, zone_id=1, new_value=constants.AquareaOperationStatus.Off)
 ```
 
 Eco/Comfort "special status" applies a per-zone temperature offset on top of

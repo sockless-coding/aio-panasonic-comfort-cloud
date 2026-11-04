@@ -122,22 +122,76 @@ class AquareaMixin(ApiClientCore):
         """ Set the target temperature of the hot water tank """
         await self._async_set_aquarea(device_info, {"tankStatus": {"heatSet": temperature}})
 
-    async def set_aquarea_tank_operation_status(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
-        """ Turn the hot water tank on/off """
+    async def _resolve_aquarea_device(self, device: AquareaDevice | PanasonicDeviceInfo) -> AquareaDevice:
+        """ Return `device` as-is, or fetch the current status when only the device info is given """
+        if isinstance(device, AquareaDevice):
+            return device
+        return await self.get_aquarea_device(device)
+
+    _UPDATE_MODE_FROM_STATUS_MODE = {
+        constants.AquareaOperationMode.Off: constants.AquareaUpdateOperationMode.Off,
+        constants.AquareaOperationMode.Heat: constants.AquareaUpdateOperationMode.Heat,
+        constants.AquareaOperationMode.Cool: constants.AquareaUpdateOperationMode.Cool,
+        constants.AquareaOperationMode.AutoHeat: constants.AquareaUpdateOperationMode.Auto,
+        constants.AquareaOperationMode.AutoCool: constants.AquareaUpdateOperationMode.Auto,
+    }
+
+    @classmethod
+    def _current_update_operation_mode(cls, device: AquareaDevice) -> "constants.AquareaUpdateOperationMode | None":
+        """ The device's current (status) operation mode, converted to the value accepted by updates """
+        return cls._UPDATE_MODE_FROM_STATUS_MODE.get(device.parameters.operation_mode)
+
+    async def set_aquarea_tank_operation_status(self, device: AquareaDevice | PanasonicDeviceInfo, new_value: str | constants.AquareaOperationStatus):
+        """ Turn the hot water tank on/off.
+
+        Mirrors the official app: alongside ``tankStatus`` it resends every
+        zone's current on/off status, and when switching the tank on it also
+        sends the current operation mode. Pass a recently refreshed
+        `AquareaDevice`; if only the `PanasonicDeviceInfo` is given, the
+        current status is fetched first.
+        """
         if isinstance(new_value, str):
             new_value = constants.AquareaOperationStatus[new_value]
-        await self._async_set_aquarea(device_info, {"tankStatus": {"operationStatus": new_value.value}})
+        device = await self._resolve_aquarea_device(device)
+        params = device.parameters
+        body: dict = {"tankStatus": {"operationStatus": new_value.value}}
+        zone_status = [
+            {"zoneId": zone.id, "operationStatus": zone.operation_status.value}
+            for zone in params.zones
+            if zone.id is not None and zone.operation_status != constants.AquareaOperationStatus.Unknown
+        ]
+        if zone_status:
+            body["zoneStatus"] = zone_status
+        if new_value == constants.AquareaOperationStatus.On:
+            mode = self._current_update_operation_mode(device)
+            if mode is not None:
+                body["operationMode"] = mode.value
+        await self._async_set_aquarea(device.info, body)
 
     async def set_aquarea_zone_temperature(self, device_info: PanasonicDeviceInfo, zone_id: int, temperature: int, mode: str = "heat"):
         """ Set the target heat/cool temperature of a zone """
         key = "heatSet" if mode == "heat" else "coolSet"
         await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, key: temperature}]})
 
-    async def set_aquarea_zone_operation_status(self, device_info: PanasonicDeviceInfo, zone_id: int, new_value: str | constants.AquareaOperationStatus):
-        """ Turn a specific zone on/off """
+    async def set_aquarea_zone_operation_status(self, device: AquareaDevice | PanasonicDeviceInfo, zone_id: int, new_value: str | constants.AquareaOperationStatus):
+        """ Turn a specific zone on/off.
+
+        Mirrors the official app: switching a zone off sends only that zone's
+        status, while switching it on also sends the current operation mode.
+        Pass a recently refreshed `AquareaDevice`; if only the
+        `PanasonicDeviceInfo` is given and the zone is being switched on, the
+        current status is fetched first.
+        """
         if isinstance(new_value, str):
             new_value = constants.AquareaOperationStatus[new_value]
-        await self._async_set_aquarea(device_info, {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]})
+        body: dict = {"zoneStatus": [{"zoneId": zone_id, "operationStatus": new_value.value}]}
+        if new_value == constants.AquareaOperationStatus.On:
+            device = await self._resolve_aquarea_device(device)
+            mode = self._current_update_operation_mode(device)
+            if mode is not None:
+                body["operationMode"] = mode.value
+        device_info = device.info if isinstance(device, AquareaDevice) else device
+        await self._async_set_aquarea(device_info, body)
 
     async def set_aquarea_operation_state(
         self,
