@@ -63,7 +63,7 @@ class AquareaDevice:
         status_json = json.get('status')
         has_changed = False
         if not self._parameters:
-            self._parameters = AquareaDeviceParameters(status_json)
+            self._parameters = AquareaDeviceParameters(status_json, is_dhw=self._info.is_aquarea_dhw)
             has_changed = True
         else:
             has_changed = self._parameters.load(status_json) or has_changed

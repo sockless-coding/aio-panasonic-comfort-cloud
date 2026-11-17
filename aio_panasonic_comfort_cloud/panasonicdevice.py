@@ -48,6 +48,8 @@ class PanasonicDeviceInfo:
         self._mode_avl_list: dict | None = None
         self._model_version: int = 0
         self._coordinable_flag: bool = False
+        self._dhw_flag: bool | None = None
+        self._dhw_type: int | None = None
 
         self.load(json)
 
@@ -77,6 +79,8 @@ class PanasonicDeviceInfo:
         self._mode_avl_list = read_value(json, 'modeAvlList', self._mode_avl_list)
         self._model_version = read_value(json, 'modelVersion', self._model_version)
         self._coordinable_flag = read_value(json, 'coordinableFlg', self._coordinable_flag)
+        self._dhw_flag = read_value(json, 'dhwFlg', self._dhw_flag)
+        self._dhw_type = read_value(json, 'dhwType', self._dhw_type)
         return True
 
     @property
@@ -116,11 +120,46 @@ class PanasonicDeviceInfo:
         """
         if self._id is None or self._guid is None or self._has_parameters:
             return False
-        if self._device_type == constants.AQUAREA_DEVICE_TYPE:
+        if self._device_type == constants.AQUAREA_DEVICE_TYPE or self._dhw_flag:
             return True
         if not self._raw:
             return False
         return 'tankStatus' in self._raw or 'zoneStatus' in self._raw
+
+    @property
+    def dhw_flag(self) -> bool | None:
+        """``dhwFlg`` from the group listing: True for a standalone domestic
+        hot water (DHW) unit run through the Aquarea API, such as an Aquarea
+        DHW tank or an EcoFlex DHW."""
+        return self._dhw_flag
+
+    @property
+    def dhw_type(self) -> "constants.AquareaDhwType | None":
+        """``dhwType`` from the group listing, or None when it is missing or
+        unknown. Only meaningful when :attr:`dhw_flag` is True."""
+        try:
+            return constants.AquareaDhwType(self._dhw_type) if self._dhw_type is not None else None
+        except ValueError:
+            return None
+
+    @property
+    def is_aquarea_dhw(self) -> bool:
+        """True for a standalone DHW unit. Its status keeps the tank's
+        on/off, temperature and setpoint at the top level of ``status``
+        rather than in ``tankStatus``, and it is controlled with a flat body
+        (``temperatureSet``, DHW ``operationMode``)."""
+        return bool(self._dhw_flag)
+
+    @property
+    def aquarea_devices_api(self) -> str:
+        """The Aquarea status/control endpoint for this device, chosen the
+        way app 5.x does it: ``/devices`` for heat pumps, ``/devices/ecoflex``
+        for EcoFlex DHW units and ``/devices/dhw`` for the other DHW units."""
+        if not self._dhw_flag:
+            return constants.AQUAREA_DEVICES_API
+        if self._dhw_type == constants.AquareaDhwType.EcoFlex.value:
+            return constants.AQUAREA_ECOFLEX_DEVICES_API
+        return constants.AQUAREA_DHW_DEVICES_API
 
     @property
     def is_hws(self):

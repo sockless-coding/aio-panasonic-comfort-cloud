@@ -292,6 +292,53 @@ await client.set_aquarea_weekly_timer_enabled(device_info, False)
 This follows the official app's requests but hasn't been tested against a real
 unit yet.
 
+#### Favorite schedules
+
+App 5.x can save named schedules ("favorites") per device. Each favorite is a name plus
+seven days in the same format as the weekly timer. Favorites are only stored. To use
+one, copy it into the schedule and save the schedule.
+
+```python
+from aio_panasonic_comfort_cloud import AquareaFavoriteTimer
+
+favorites = await client.get_aquarea_favorite_timers(device_info)
+
+timer = await client.get_aquarea_weekly_timer(device_info)
+favorites[0].apply_to(timer)
+await client.set_aquarea_weekly_timer(timer)
+
+# The whole list is replaced, as in the app
+favorites.append(AquareaFavoriteTimer.from_weekly_timer("Winter", timer))
+await client.set_aquarea_favorite_timers(device_info, favorites)
+```
+
+### Standalone DHW units (Aquarea DHW, EcoFlex)
+
+Standalone domestic hot water units have `dhwFlg` set in the device list and appear in
+`client.aquarea_devices` with `device_info.is_aquarea_dhw == True`. Their `dhwType`
+(`device_info.dhw_type`) selects the endpoint, the same way app 5.x does:
+`AquareaDhwType.EcoFlex` uses `/remote/v1/api/devices/ecoflex`, and the Aquarea DHW tanks
+use `/remote/v1/api/devices/dhw`. The usual `get_aquarea_device()` and `set_aquarea_*`
+calls pick the right one.
+
+These units are just a tank. The status keeps it at the top level, and
+`parameters.tank` is built from those values. Their operation mode is
+`AquareaDhwOperationMode` (heat pump, heater only, auto), and the allowed setpoint
+range depends on it:
+
+```python
+device = await client.get_aquarea_device(device_info)
+params = device.parameters
+print(params.dhw_operation_mode, params.tank.temperature, params.tank.heat_set)
+print(params.dhw_temperature_range())  # (min, max) for the current mode
+
+await client.set_aquarea_dhw_operation_mode(device_info, constants.AquareaDhwOperationMode.HeatPump)
+await client.set_aquarea_tank_temperature(device_info, 55)    # sends temperatureSet
+await client.set_aquarea_tank_operation_status(device, constants.AquareaOperationStatus.On)
+```
+
+This follows the official app 5.1.2 but hasn't been tested against a real DHW unit.
+
 ## HWS (Standalone Heat Pump Hot Water Tank) Support
 
 Some accounts have a standalone hot water heat pump (e.g. an HE-UM40CR),

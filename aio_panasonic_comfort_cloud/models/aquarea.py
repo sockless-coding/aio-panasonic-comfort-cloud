@@ -182,9 +182,18 @@ class AquareaTankStatus:
 class AquareaDeviceParameters:
     """Live status of an Aquarea (Air to Water) device, as returned by the
     ``remote/v1/app/common/transfer`` proxy for ``/remote/v1/api/devices``.
+
+    Standalone DHW units (``is_dhw``; ``/remote/v1/api/devices/dhw`` and
+    ``/devices/ecoflex``) report their tank at the top level of ``status``
+    (``operationStatus``, ``temperatureNow``, ``temperatureSet``) instead of in
+    ``tankStatus``, and use :class:`constants.AquareaDhwOperationMode` for
+    ``operationMode``. For them :attr:`tank` is built from those top-level
+    values, :attr:`dhw_operation_mode` holds the mode and
+    :attr:`operation_mode` is left at its default.
     """
 
-    def __init__(self, json=None) -> None:
+    def __init__(self, json=None, is_dhw: bool = False) -> None:
+        self._is_dhw = is_dhw
         self._operation_status = constants.AquareaOperationStatus.Off
         self._operation_mode = constants.AquareaOperationMode.Off
         self._device_mode_status = constants.AquareaDeviceModeStatus.Normal
@@ -214,8 +223,104 @@ class AquareaDeviceParameters:
         self._zones: list[AquareaZoneStatus] = []
         self._zone_index: dict[int, AquareaZoneStatus] = {}
 
+        # Top-level temperatures. Standalone DHW units use these for their
+        # tank; the *MinTemp/*MaxTemp pairs (new in app 5.x) are the allowed
+        # setpoint range per DHW operation mode.
+        self._dhw_operation_mode: constants.AquareaDhwOperationMode | None = None
+        self._temperature_now: int | None = None
+        self._temperature_set: int | None = None
+        self._min_temperature: int | None = None
+        self._max_temperature: int | None = None
+        self._heat_min_temp: int | None = None
+        self._heat_max_temp: int | None = None
+        self._heater_min_temp: int | None = None
+        self._heater_max_temp: int | None = None
+        self._auto_min_temp: int | None = None
+        self._auto_max_temp: int | None = None
+
         self._has_changed = False
         self.load(json)
+
+    @property
+    def is_dhw(self) -> bool:
+        """True when this is the status of a standalone DHW unit."""
+        return self._is_dhw
+
+    @property
+    def dhw_operation_mode(self) -> "constants.AquareaDhwOperationMode | None":
+        """Operation mode of a standalone DHW unit; None for heat pumps."""
+        return self._dhw_operation_mode
+
+    @property
+    def temperature_now(self) -> int | None:
+        """Top-level ``temperatureNow`` (the tank temperature of a DHW unit)."""
+        return self._temperature_now
+
+    @property
+    def temperature_set(self) -> int | None:
+        """Top-level ``temperatureSet`` (the tank setpoint of a DHW unit)."""
+        return self._temperature_set
+
+    @property
+    def min_temperature(self) -> int | None:
+        return self._min_temperature
+
+    @property
+    def max_temperature(self) -> int | None:
+        return self._max_temperature
+
+    @property
+    def heat_min_temp(self) -> int | None:
+        """Lowest setpoint in DHW heat pump mode (``heatMinTemp``)."""
+        return self._heat_min_temp
+
+    @property
+    def heat_max_temp(self) -> int | None:
+        """Highest setpoint in DHW heat pump mode (``heatMaxTemp``)."""
+        return self._heat_max_temp
+
+    @property
+    def heater_min_temp(self) -> int | None:
+        """Lowest setpoint in DHW heater-only mode (``heaterMinTemp``)."""
+        return self._heater_min_temp
+
+    @property
+    def heater_max_temp(self) -> int | None:
+        """Highest setpoint in DHW heater-only mode (``heaterMaxTemp``)."""
+        return self._heater_max_temp
+
+    @property
+    def auto_min_temp(self) -> int | None:
+        """Lowest setpoint in DHW auto mode (``autoMinTemp``)."""
+        return self._auto_min_temp
+
+    @property
+    def auto_max_temp(self) -> int | None:
+        """Highest setpoint in DHW auto mode (``autoMaxTemp``)."""
+        return self._auto_max_temp
+
+    def dhw_temperature_range(
+        self, mode: "constants.AquareaDhwOperationMode | None" = None
+    ) -> tuple[int | None, int | None]:
+        """(min, max) setpoint of a standalone DHW unit in `mode` (default:
+        the current mode), picked the way app 5.x does it: heat pump uses
+        ``heat*Temp``, heater-only ``heater*Temp``, auto ``auto*Temp``, and
+        anything else ``min/maxTemperature``. Where a mode-specific value is
+        missing, ``min/maxTemperature`` is used instead."""
+        if mode is None:
+            mode = self._dhw_operation_mode
+        if mode == constants.AquareaDhwOperationMode.HeatPump:
+            low, high = self._heat_min_temp, self._heat_max_temp
+        elif mode == constants.AquareaDhwOperationMode.HeaterOnly:
+            low, high = self._heater_min_temp, self._heater_max_temp
+        elif mode == constants.AquareaDhwOperationMode.Auto:
+            low, high = self._auto_min_temp, self._auto_max_temp
+        else:
+            low, high = None, None
+        return (
+            low if low is not None else self._min_temperature,
+            high if high is not None else self._max_temperature,
+        )
 
     @property
     def has_changed(self):
@@ -384,7 +489,13 @@ class AquareaDeviceParameters:
         self._has_changed = False
 
         self.operation_status = read_enum(json, 'operationStatus', constants.AquareaOperationStatus, self.operation_status)
-        self.operation_mode = read_enum(json, 'operationMode', constants.AquareaOperationMode, self.operation_mode)
+        if self._is_dhw:
+            dhw_operation_mode = read_enum(json, 'operationMode', constants.AquareaDhwOperationMode, self._dhw_operation_mode)
+            if dhw_operation_mode != self._dhw_operation_mode:
+                self._dhw_operation_mode = dhw_operation_mode
+                self._has_changed = True
+        else:
+            self.operation_mode = read_enum(json, 'operationMode', constants.AquareaOperationMode, self.operation_mode)
         self._device_mode_status = read_enum(json, 'deiceStatus', constants.AquareaDeviceModeStatus, self._device_mode_status)
         self._temperature_outdoor = read_value(json, 'outdoorNow', self._temperature_outdoor)
         self._direction = read_enum(json, 'direction', constants.AquareaDeviceDirection, self._direction)
@@ -414,7 +525,21 @@ class AquareaDeviceParameters:
         self._service_type = read_value(json, 'serviceType', self._service_type)
         self._fault_status = read_value(json, 'faultStatus', [])
 
-        self._load_tank(json)
+        self._temperature_now = read_value(json, 'temperatureNow', self._temperature_now)
+        self._temperature_set = read_value(json, 'temperatureSet', self._temperature_set)
+        self._min_temperature = read_value(json, 'minTemperature', self._min_temperature)
+        self._max_temperature = read_value(json, 'maxTemperature', self._max_temperature)
+        self._heat_min_temp = read_value(json, 'heatMinTemp', self._heat_min_temp)
+        self._heat_max_temp = read_value(json, 'heatMaxTemp', self._heat_max_temp)
+        self._heater_min_temp = read_value(json, 'heaterMinTemp', self._heater_min_temp)
+        self._heater_max_temp = read_value(json, 'heaterMaxTemp', self._heater_max_temp)
+        self._auto_min_temp = read_value(json, 'autoMinTemp', self._auto_min_temp)
+        self._auto_max_temp = read_value(json, 'autoMaxTemp', self._auto_max_temp)
+
+        if self._is_dhw and not json.get('tankStatus'):
+            self._load_root_tank(json)
+        else:
+            self._load_tank(json)
         self._load_zones(json)
 
         has_changed = self._has_changed
@@ -423,6 +548,27 @@ class AquareaDeviceParameters:
 
     def _load_tank(self, json):
         tank_json = json.get('tankStatus')
+        if not tank_json:
+            self._has_tank = False
+            return
+        self._has_tank = True
+        if not self._tank:
+            self._tank = AquareaTankStatus(tank_json)
+        else:
+            self._tank.load(tank_json)
+        self._has_changed = True
+
+    def _load_root_tank(self, json):
+        """Build the tank of a standalone DHW unit from the top-level status."""
+        heat_min, heat_max = self.dhw_temperature_range()
+        tank_json = {
+            'operationStatus': json.get('operationStatus'),
+            'temperatureNow': self._temperature_now,
+            'heatSet': self._temperature_set,
+            'heatMin': heat_min,
+            'heatMax': heat_max,
+        }
+        tank_json = {key: value for key, value in tank_json.items() if value is not None}
         if not tank_json:
             self._has_tank = False
             return

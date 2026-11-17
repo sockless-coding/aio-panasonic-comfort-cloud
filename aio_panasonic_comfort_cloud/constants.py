@@ -201,6 +201,34 @@ class AquareaSpecialStatus(Enum):
     Comfort = 2
 
 
+class AquareaDhwType(Enum):
+    """``dhwType`` of a standalone domestic hot water (DHW) unit in the group
+    listing (only meaningful when ``dhwFlg`` is true).
+
+    Picks the endpoint the app talks to: the Aquarea DHW tanks use
+    ``/remote/v1/api/devices/dhw`` and EcoFlex (new in app 5.x) uses
+    ``/remote/v1/api/devices/ecoflex``.
+    """
+    AquareaDhwWH = 1
+    AquareaDhwFS = 2
+    EcoFlex = 3
+
+
+class AquareaDhwOperationMode(Enum):
+    """``operationMode`` of a standalone DHW unit (``dhwFlg`` true). Not the
+    same values as the heat pump's :class:`AquareaUpdateOperationMode`."""
+    HeatPump = 1
+    HeaterOnly = 2
+    Auto = 3
+
+
+AQUAREA_DEVICES_API = "/remote/v1/api/devices"
+AQUAREA_DHW_DEVICES_API = "/remote/v1/api/devices/dhw"
+AQUAREA_ECOFLEX_DEVICES_API = "/remote/v1/api/devices/ecoflex"
+AQUAREA_WEEKLY_TIMER_API = "/remote/v1/api/data/weeklyTimer"
+AQUAREA_FAVORITE_TIMER_API = "/remote/v1/api/data/weeklyTimer/favoriteTimer"
+
+
 class AquareaDataMode(Enum):
     """dataMode values for the Aquarea /remote/v1/api/consumption endpoint.
 
@@ -293,6 +321,20 @@ BASE_PATH_AUTH = "https://authglb.digital.panasonic.com"
 BASE_PATH_ACC = "https://accsmart.panasonic.com"
 AUTH_API_USER_AGENT = "okhttp/4.10.0"
 AUTH_BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Mobile Safari/537.36"
+
+# Since app 5.x the inputs of the X-CFC-API-KEY hash come from this file
+# instead of being built into the app. Its values are RSA-OAEP(SHA-256)
+# blobs that the app decrypts with SECURITY_KEY_PUBLIC_KEY. The defaults
+# below are what it held when 5.1.2 was released and are used whenever the
+# file can't be fetched or decoded.
+SECURITY_KEY_INITIALIZE_URL = f"{BASE_PATH_ACC}/resources/Initialize/V_5_0_0/initialize_android.json"
+SECURITY_KEY_PUBLIC_KEY = (
+    "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDaZEmYUsl3PON0oD+3O5rlL1RBVtKXyVxDv2eN1JP+A0jWmuWm"
+    "rgtaws/7OQokkcYIX4G9BRz8s6T2UMjaGrAk+5ImUxaS9q9IEVhdhVAckHrBAR980j/IubC+y3Xa0Rd0EwN79Mom"
+    "mayrXg9SrmJGHIEqkku7UAz5k2Nu5V/OuQIDAQAB"
+)
+DEFAULT_SECURITY_KEY_APP_NAME_HASH = "d2bf5231251384fb684dacf71344674b"
+DEFAULT_SECURITY_KEY_INSERT_STRING = "cfc"
 
 CHECK_RESPONSE_ERROR_MESSAGE = """Error in %s
 Expected status code '%s' but received '%s'

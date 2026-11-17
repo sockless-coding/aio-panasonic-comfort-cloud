@@ -12,7 +12,11 @@ class CCAppVersion:
     def __init__(self, client: aiohttp.ClientSession, settings: PanasonicSettings) -> None:
         self._client = client
         self._settings = settings
-    
+
+    @property
+    def client(self) -> aiohttp.ClientSession:
+        return self._client
+
     async def get(self):
         if self._settings.is_version_expired:
             await self.refresh()
