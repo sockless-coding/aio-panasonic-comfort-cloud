@@ -129,14 +129,18 @@ class AquareaMixin(ApiClientCore):
         await self._async_set_aquarea(device_info, {"holidayTimer": new_value.value})
 
     async def set_aquarea_powerful_time(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaPowerfulTime):
-        """ Enable powerful mode for the given duration """
+        """ Enable powerful mode for the given duration.
+
+        The status reports it as ``powerful``, but the app sends the change
+        as ``powerfulRequest`` (same values).
+        """
         if isinstance(new_value, str):
             new_value = constants.AquareaPowerfulTime[new_value]
-        await self._async_set_aquarea(device_info, {"powerful": new_value.value})
+        await self._async_set_aquarea(device_info, {"powerfulRequest": new_value.value})
 
     async def request_aquarea_defrost(self, device_info: PanasonicDeviceInfo):
         """ Request an immediate defrost cycle """
-        await self._async_set_aquarea(device_info, {"forcedefrost": 1})
+        await self._async_set_aquarea(device_info, {"forceDefrost": 1})
 
     async def set_aquarea_tank_temperature(self, device_info: PanasonicDeviceInfo, temperature: int):
         """ Set the target temperature of the hot water tank """
