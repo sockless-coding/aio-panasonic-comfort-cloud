@@ -20,6 +20,7 @@ from .models.aquarea import (
     AquareaConsumption,
 )
 from .models.aquareaweeklytimer import (
+    AquareaFavoriteTimer,
     AquareaWeeklyTimer,
     AquareaWeeklyTimerDay,
     AquareaWeeklyTimerPattern,

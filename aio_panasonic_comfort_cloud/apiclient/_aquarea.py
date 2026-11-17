@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from .. import constants
 from ..aquareadevice import AquareaDevice
 from ..models.aquarea import AquareaConsumption
-from ..models.aquareaweeklytimer import AquareaWeeklyTimer
+from ..models.aquareaweeklytimer import AquareaFavoriteTimer, AquareaWeeklyTimer
 from ..panasonicdevice import PanasonicDeviceInfo
 from ._timezone import get_current_time_zone
 
@@ -15,7 +15,8 @@ else:
 
 _LOGGER = logging.getLogger(__name__)
 
-_WEEKLY_TIMER_API = "/remote/v1/api/data/weeklyTimer"
+_WEEKLY_TIMER_API = constants.AQUAREA_WEEKLY_TIMER_API
+_FAVORITE_TIMER_API = constants.AQUAREA_FAVORITE_TIMER_API
 
 
 class AquareaMixin(ApiClientCore):
@@ -34,7 +35,7 @@ class AquareaMixin(ApiClientCore):
             or (device_info.id in self._cache_devices and self._cache_devices[device_info.id] <= 0)):
             try:
                 payload = {
-                    "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=1",
+                    "apiName": f"{device_info.aquarea_devices_api}?gwid={device_info.guid}&deviceDirect=1",
                     "requestMethod": "GET"
                 }
                 json_response = await self.execute_post(
@@ -49,7 +50,7 @@ class AquareaMixin(ApiClientCore):
                 device_info.status_data_mode = constants.StatusDataMode.CACHED
                 self._cache_devices[device_info.id] = 10
         payload = {
-            "apiName": f"/remote/v1/api/devices?gwid={device_info.guid}&deviceDirect=0",
+            "apiName": f"{device_info.aquarea_devices_api}?gwid={device_info.guid}&deviceDirect=0",
             "requestMethod": "GET"
         }
         json_response = await self.execute_post(
@@ -61,9 +62,16 @@ class AquareaMixin(ApiClientCore):
         return json_response
 
     async def _async_set_aquarea(self, device_info: PanasonicDeviceInfo, body_param: dict):
-        """ Send a partial update to an Aquarea device via the common/transfer proxy """
+        """ Send a partial update to an Aquarea device via the common/transfer proxy.
+
+        Standalone DHW units go to ``/devices/dhw`` or ``/devices/ecoflex``
+        (see :attr:`PanasonicDeviceInfo.aquarea_devices_api`). Their body is
+        flat: ``operationStatus``, ``operationMode``, ``quietMode``,
+        ``holidayTimer``, ``forceDHW``, ``forceHeater``, ``forceDefrost`` and
+        ``temperatureSet``.
+        """
         payload = {
-            "apiName": "/remote/v1/api/devices",
+            "apiName": device_info.aquarea_devices_api,
             "requestMethod": "POST",
             "bodyParam": {
                 "gwid": device_info.guid,
@@ -80,8 +88,20 @@ class AquareaMixin(ApiClientCore):
 
     async def set_aquarea_operation_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaUpdateOperationMode):
         """ Set the Aquarea operation mode (heat/cool/auto/off) """
+        if device_info.is_aquarea_dhw:
+            raise ValueError(
+                "Standalone DHW units use set_aquarea_dhw_operation_mode() with an AquareaDhwOperationMode")
         if isinstance(new_value, str):
             new_value = constants.AquareaUpdateOperationMode[new_value]
+        await self._async_set_aquarea(device_info, {"operationMode": new_value.value})
+
+    async def set_aquarea_dhw_operation_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaDhwOperationMode):
+        """ Set the operation mode (heat pump/heater only/auto) of a
+        standalone DHW unit (``device_info.is_aquarea_dhw``). """
+        if not device_info.is_aquarea_dhw:
+            raise ValueError("set_aquarea_dhw_operation_mode() is only for standalone DHW units")
+        if isinstance(new_value, str):
+            new_value = constants.AquareaDhwOperationMode[new_value]
         await self._async_set_aquarea(device_info, {"operationMode": new_value.value})
 
     async def set_aquarea_quiet_mode(self, device_info: PanasonicDeviceInfo, new_value: str | constants.AquareaQuietMode):
@@ -120,6 +140,9 @@ class AquareaMixin(ApiClientCore):
 
     async def set_aquarea_tank_temperature(self, device_info: PanasonicDeviceInfo, temperature: int):
         """ Set the target temperature of the hot water tank """
+        if device_info.is_aquarea_dhw:
+            await self._async_set_aquarea(device_info, {"temperatureSet": temperature})
+            return
         await self._async_set_aquarea(device_info, {"tankStatus": {"heatSet": temperature}})
 
     async def _resolve_aquarea_device(self, device: AquareaDevice | PanasonicDeviceInfo) -> AquareaDevice:
@@ -152,6 +175,12 @@ class AquareaMixin(ApiClientCore):
         """
         if isinstance(new_value, str):
             new_value = constants.AquareaOperationStatus[new_value]
+        device_info = device.info if isinstance(device, AquareaDevice) else device
+        if device_info.is_aquarea_dhw:
+            # A standalone DHW unit is just the tank: its on/off is the
+            # top-level operationStatus.
+            await self._async_set_aquarea(device_info, {"operationStatus": new_value.value})
+            return
         device = await self._resolve_aquarea_device(device)
         params = device.parameters
         body: dict = {"tankStatus": {"operationStatus": new_value.value}}
@@ -227,6 +256,14 @@ class AquareaMixin(ApiClientCore):
                 leave it unchanged.
         """
         params = device.parameters
+
+        if device.info.is_aquarea_dhw:
+            if mode is not None or zone_id is not None:
+                raise ValueError(
+                    "Standalone DHW units have no zones; use set_aquarea_dhw_operation_mode() for their mode")
+            if tank_status is not None:
+                await self._async_set_aquarea(device.info, {"operationStatus": tank_status.value})
+            return
 
         resolved_zone_status = {zone.id: zone.operation_status for zone in params.zones}
         if zone_id is not None and zone_status is not None:
@@ -380,6 +417,33 @@ class AquareaMixin(ApiClientCore):
         weekly_timer.enabled = enabled
         await self.set_aquarea_weekly_timer(weekly_timer)
         return weekly_timer
+
+    async def get_aquarea_favorite_timers(self, device_info: PanasonicDeviceInfo) -> list[AquareaFavoriteTimer]:
+        """ Fetch the saved ("favorite") weekly schedules of an Aquarea
+        device, new in app 5.x. """
+        payload = {
+            "apiName": f"{_FAVORITE_TIMER_API}?gwid={device_info.guid}",
+            "requestMethod": "GET"
+        }
+        json_response = await self.execute_post(
+            self._get_aquarea_request_url(), payload, "get_aquarea_favorite_timers", 200)
+        favorites = (json_response or {}).get("favoriteTimerList") or []
+        return [AquareaFavoriteTimer(json=favorite) for favorite in favorites if favorite]
+
+    async def set_aquarea_favorite_timers(self, device_info: PanasonicDeviceInfo, favorites: list[AquareaFavoriteTimer]):
+        """ Replace the saved ("favorite") weekly schedules of an Aquarea
+        device with `favorites`. The whole list is sent, as the app does, so
+        to add or remove one, change the list from
+        :meth:`get_aquarea_favorite_timers` and send it back. """
+        payload = {
+            "apiName": _FAVORITE_TIMER_API,
+            "requestMethod": "POST",
+            "bodyParam": {
+                "gwid": device_info.guid,
+                "favoriteTimerList": [favorite.to_dict() for favorite in favorites],
+            }
+        }
+        await self.execute_post(self._get_aquarea_request_url(), payload, "set_aquarea_favorite_timers", 200)
 
     async def async_get_aquarea_consumption(self, device_info: PanasonicDeviceInfo, data_mode: str | constants.AquareaDataMode, date: str) -> list[AquareaConsumption]:
         """ Get Aquarea energy consumption/cost history, broken down by heat/cool/tank.

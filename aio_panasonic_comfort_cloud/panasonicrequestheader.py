@@ -6,6 +6,7 @@ import logging
 
 from .panasonicsettings import PanasonicSettings
 from .ccappversion import CCAppVersion
+from .ccsecuritykey import CCSecurityKeyParams
 from .constants import AUTH_BROWSER_USER_AGENT
 
 _LOGGER = logging.getLogger(__name__)
@@ -14,9 +15,10 @@ class PanasonicRequestHeader:
 
     @staticmethod
     async def get(settings: PanasonicSettings, app_version: CCAppVersion, include_client_id = True):
+        salt, insert = await CCSecurityKeyParams.get(getattr(app_version, "client", None))
         now = datetime.datetime.now()
-        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")    
-        api_key = PanasonicRequestHeader._get_api_key(timestamp, settings.access_token)  
+        timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        api_key = PanasonicRequestHeader._get_api_key(timestamp, settings.access_token, salt, insert)
         _LOGGER.debug(f"Request Timestamp: {timestamp} key: {api_key}")
         headers={
                 "accept": "application/json; charset=utf-8",
@@ -47,25 +49,29 @@ class PanasonicRequestHeader:
         return headers
         
     @staticmethod
-    def _get_api_key(timestamp, token):
+    def _get_api_key(timestamp, token, salt: str | None = None, insert: str | None = None):
+        if salt is None or insert is None:
+            default_salt, default_insert = CCSecurityKeyParams.current()
+            salt = salt if salt is not None else default_salt
+            insert = insert if insert is not None else default_insert
         try:
             date = datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
             timestamp_ms = str(int(date.replace(tzinfo=datetime.timezone.utc).timestamp() * 1000))
-            
+
             components = [
                 'Comfort Cloud'.encode('utf-8'),
-                '521325fb2dd486bf4831b47644317fca'.encode('utf-8'),
+                salt.encode('utf-8'),
                 timestamp_ms.encode('utf-8'),
                 'Bearer '.encode('utf-8'),
                 token.encode('utf-8')
             ]
-                
+
             input_buffer = b''.join(components)
             hash_obj = hashlib.sha256()
             hash_obj.update(input_buffer)
             hash_str = hash_obj.hexdigest()
-            
-            result = hash_str[:9] + 'cfc' + hash_str[9:]
+
+            result = hash_str[:9] + insert + hash_str[9:]
             return result
         except Exception as ex:
             _LOGGER.error("Failed to generate API key")

@@ -219,7 +219,10 @@ class AquareaWeeklyTimer:
     @property
     def tank_status(self) -> dict | None:
         """Raw allowed tank temperature range (``heatMin``, ``heatMax``,
-        ``minTemp``, ``maxTemp``), as returned with the schedule."""
+        ``minTemp``, ``maxTemp``), as returned with the schedule. Since app
+        5.x standalone DHW units also return per-mode ranges here:
+        ``heatMinTemp``/``heatMaxTemp`` (heat pump), ``heaterMinTemp``/
+        ``heaterMaxTemp`` (heater only) and ``autoMinTemp``/``autoMaxTemp``."""
         return (self._json.get('status') or {}).get('tankStatus')
 
     @property
@@ -266,3 +269,67 @@ class AquareaWeeklyTimer:
 
     def __repr__(self) -> str:
         return f"AquareaWeeklyTimer({self._gwid}, enabled={self.enabled}, days={self._days})"
+
+
+class AquareaFavoriteTimer:
+    """A saved ("favorite") weekly schedule, as stored by app 5.x at
+    ``/remote/v1/api/data/weeklyTimer/favoriteTimer``.
+
+    A favorite is a name plus seven days (Monday first) in the same format as
+    :class:`AquareaWeeklyTimer`. Favorites are only stored; applying one means
+    copying its days into the device's schedule (:meth:`apply_to`) and saving
+    that.
+    """
+
+    def __init__(self, name: str = "", json: dict | None = None) -> None:
+        self._json: dict = copy.deepcopy(json) if json else {}
+        if name or 'name' not in self._json:
+            self._json['name'] = name
+        day_jsons = [day or {} for day in self._json.get('weeklyTimerList') or []]
+        day_jsons += [{}] * (WEEKLY_TIMER_DAYS - len(day_jsons))
+        self._days = [
+            AquareaWeeklyTimerDay(weekday, day_json)
+            for weekday, day_json in zip(constants.WeeklyTimerWeekday, day_jsons)
+        ]
+
+    @classmethod
+    def from_weekly_timer(cls, name: str, weekly_timer: AquareaWeeklyTimer) -> "AquareaFavoriteTimer":
+        """A new favorite holding a copy of `weekly_timer`'s days."""
+        return cls(name, {'weeklyTimerList': [day.to_dict() for day in weekly_timer.days]})
+
+    @property
+    def name(self) -> str:
+        return self._json.get('name') or ""
+    @name.setter
+    def name(self, value: str):
+        self._json['name'] = value
+
+    @property
+    def days(self) -> list[AquareaWeeklyTimerDay]:
+        """Monday through Sunday."""
+        return list(self._days)
+
+    def day(self, weekday: constants.WeeklyTimerWeekday | int | str) -> AquareaWeeklyTimerDay:
+        if isinstance(weekday, str):
+            weekday = constants.WeeklyTimerWeekday[weekday]
+        return self._days[constants.WeeklyTimerWeekday(weekday).value]
+
+    def apply_to(self, weekly_timer: AquareaWeeklyTimer) -> None:
+        """Replace every day of `weekly_timer` with this favorite's patterns.
+        Save it with ``ApiClient.set_aquarea_weekly_timer()``."""
+        for source, target in zip(self._days, weekly_timer.days):
+            target.set_patterns([
+                AquareaWeeklyTimerPattern(copy.deepcopy(pattern.raw)) for pattern in source.patterns
+            ])
+
+    @property
+    def raw(self) -> dict:
+        return self._json
+
+    def to_dict(self) -> dict:
+        data = {key: value for key, value in self._json.items() if value is not None}
+        data['weeklyTimerList'] = [day.to_dict() for day in self._days]
+        return data
+
+    def __repr__(self) -> str:
+        return f"AquareaFavoriteTimer({self.name!r}, days={self._days})"
