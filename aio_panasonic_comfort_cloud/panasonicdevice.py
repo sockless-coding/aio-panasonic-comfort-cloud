@@ -717,7 +717,41 @@ class PanasonicDevice:
         if self._features is None or self._parameters is None:
             return False
         return self._features.iauto_x_mode and self._parameters.iautox_mode!= constants.IAutoXMode.Unavailable
-    
+
+    @property
+    def has_fireplace(self) -> bool:
+        """Whether the unit has the fireplace setting. Mirrors the app: the
+        device-level flag must be set and the parameter must not be 0."""
+        if self._features is None or self._parameters is None:
+            return False
+        return bool(self._features.fireplace) and self._parameters.fireplace != constants.FireplaceMode.Unavailable.value
+
+    @property
+    def has_nanoe_stand_alone(self) -> bool:
+        """Whether the unit can run nanoe on its own (``OperationMode.NanoeStandAlone``)."""
+        if self._features is None:
+            return False
+        return bool(self._features.nanoe_stand_alone)
+
+    @property
+    def has_clothes_drying(self) -> bool:
+        """Whether the unit has the clothes drying mode (``OperationMode.ClothesDrying``)."""
+        if self._features is None or self._info.is_cac:
+            return False
+        return bool(self._features.clothes_drying)
+
+    @property
+    def in_nanoe_stand_alone_mode(self) -> bool:
+        """True while the unit runs nanoe stand-alone. The unit reports this as
+        Fan mode with ``lastSettingMode`` 2 and nanoe ModeG/All, which is how
+        the app recognises it."""
+        if self._features is None or self._parameters is None:
+            return False
+        return (bool(self._features.nanoe_stand_alone)
+                and self._parameters.mode == constants.OperationMode.Fan
+                and self._parameters.last_setting_mode == 2
+                and self._parameters.nanoe_mode in (constants.NanoeMode.ModeG, constants.NanoeMode.All))
+
     @property
     def in_summer_house_mode(self): 
         if self._features is None or self._parameters is None or self._parameters.target_temperature is None:

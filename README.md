@@ -119,11 +119,16 @@ supports, following the same rules as the Comfort Cloud app:
   `EcoMode.Powerful` are available.
 - `supported_eco_modes` — `Auto` plus whichever of `Powerful`/`Quiet` the unit has.
 - `info.is_cac` — True for the CAC device types (`constants.CAC_DEVICE_TYPES`).
+- `has_fireplace` — whether the unit has the fireplace setting.
+- `has_nanoe_stand_alone` / `in_nanoe_stand_alone_mode` — nanoe stand-alone support,
+  and whether it is running now (the unit reports it as Fan mode).
+- `has_clothes_drying` — whether `OperationMode.ClothesDrying` is available.
 
 ### ChangeRequestBuilder Methods
 
 - `set_power_mode(value)` — Set power on/off
-- `set_hvac_mode(value)` — Set operation mode (cool, heat, etc.)
+- `set_hvac_mode(value)` — Set operation mode (cool, heat, etc., plus
+  `NanoeStandAlone` and `ClothesDrying`). Also turns iAUTO-X off, as the app does
 - `set_target_temperature(value)` — Set target temperature in °C
 - `set_fan_speed(value)` — Set fan speed
 - `set_eco_mode(value)` — Set eco mode
@@ -132,6 +137,10 @@ supports, following the same rules as the Comfort Cloud app:
 - `set_nanoe_mode(value)` — Set Nanoe mode
 - `set_eco_navi_mode(value)` — Set EcoNavi mode
 - `set_eco_function_mode(value)` — Set EcoFunction mode
+- `set_iautox_mode(value)` — Set iAUTO-X on/off
+- `set_inside_cleaning_mode(value)` — Set inside cleaning on/off
+- `set_fireplace_mode(value)` — Set fireplace on/off (the app only offers it in Heat mode)
+- `set_zone_mode(zone_id, value)` / `set_zone_damper(zone_id, value)` — Zone on/off and damper level
 
 ### Getting Energy History
 
