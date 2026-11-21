@@ -13,6 +13,14 @@ class OperationMode(Enum):
     Cool = 2
     Heat = 3
     Fan = 4
+    # Only accepted by units whose ``nanoeStandAlone`` feature flag is set. The
+    # app sends 5 to start it, but the unit then reports Fan (4) with
+    # ``lastSettingMode`` 2 and nanoe 3/4 (see
+    # ``PanasonicDevice.in_nanoe_stand_alone_mode``).
+    NanoeStandAlone = 5
+    # Only accepted by units whose ``clothesDrying`` feature flag is set.
+    # Reported back as 6 as well.
+    ClothesDrying = 6
 
 
 class AirSwingUD(Enum):
@@ -90,6 +98,13 @@ class InsideCleaningMode(Enum):
     On = 1
 
 class IAutoXMode(Enum):
+    Unavailable = 0
+    Off = 1
+    On = 2
+
+class FireplaceMode(Enum):
+    """``fireplace`` parameter. The app only lets it be changed while the unit
+    is in Heat mode, and only when the device-level ``fireplace`` flag is set."""
     Unavailable = 0
     Off = 1
     On = 2

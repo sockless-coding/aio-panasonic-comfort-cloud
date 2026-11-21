@@ -40,10 +40,10 @@ class ChangeRequestBuilder:
         return self
 
     @property
-    def target_temperature(self) -> int | None:
+    def target_temperature(self) -> float | None:
         return self._request["temperatureSet"] if "temperatureSet" in self._request else None
-    
-    def set_target_temperature(self, new_value: int):
+
+    def set_target_temperature(self, new_value: float):
         """ Set target temperature """
         self._ensure_powered_on()
         self._request["temperatureSet"] = new_value
@@ -76,61 +76,94 @@ class ChangeRequestBuilder:
             new_value = constants.OperationMode[new_value]
         self._force_powered_on()
         self._request["operationMode"] = new_value.value
+        self._apply_mode_side_effects(new_value)
         return self
+
+    def _apply_mode_side_effects(self, mode: constants.OperationMode) -> None:
+        """ Add the extra fields the app sends along with a mode change.
+
+        Uses setdefault so values set explicitly on this builder always win,
+        whichever order the setters are called in.
+        """
+        parameters = self._device.parameters
+        # Picking any mode turns iAUTO-X off (set_iautox_mode turns it back on).
+        if parameters.iautox_mode == constants.IAutoXMode.On:
+            self._request.setdefault("iAuto", constants.IAutoXMode.Off.value)
+
+        match mode:
+            case constants.OperationMode.NanoeStandAlone:
+                self._request.setdefault("temperatureSet", 24 if self._device.info.is_cac else 27)
+                self._request.setdefault("nanoe", constants.NanoeMode.All.value)
+                if not self._device.info.is_cac and parameters.eco_mode != constants.EcoMode.Quiet:
+                    self._request.setdefault("ecoMode", constants.EcoMode.Auto.value)
+            case constants.OperationMode.ClothesDrying:
+                self._request.setdefault("temperatureSet", 0)
+                self._request.setdefault("fanSpeed", constants.FanSpeed.Auto.value)
+                self._request.setdefault("nanoe", constants.NanoeMode.All.value)
+                self._request.setdefault("ecoMode", constants.EcoMode.Auto.value)
 
     @property
     def horizontal_swing(self) -> constants.AirSwingLR | None:
+        if "fanAutoMode" in self._request and self._is_auto(horizontal=True):
+            return constants.AirSwingLR.Auto
         if "airSwingLR" not in self._request:
             return None
-        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingLR.value):
-            return constants.AirSwingLR.Auto
         return constants.AirSwingLR(self._request["airSwingLR"])
-    
+
     def set_horizontal_swing(self, new_value: str | constants.AirSwingLR):
         """ Set horizontal swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingLR[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingLR 
-                    if new_value == constants.AirSwingLR.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if self._device.parameters.vertical_swing_mode == constants.AirSwingUD.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingLR.Auto 
-                        else constants.AirSwingAutoMode.AirSwingUD)
         self._ensure_powered_on()
-        if new_value != constants.AirSwingLR.Auto:
+        horizontal_auto = new_value == constants.AirSwingLR.Auto
+        if not horizontal_auto:
             self._request["airSwingLR"] = new_value.value
-        self._request["fanAutoMode"] = fan_auto.value
+        self._set_fan_auto_mode(horizontal_auto, self._is_auto(horizontal=False))
         return self
-    
+
     @property
     def vertical_swing(self) -> constants.AirSwingUD | None:
+        if "fanAutoMode" in self._request and self._is_auto(horizontal=False):
+            return constants.AirSwingUD.Auto
         if "airSwingUD" not in self._request:
             return None
-        if self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, constants.AirSwingAutoMode.AirSwingUD.value):
-            return constants.AirSwingUD.Auto
         return constants.AirSwingUD(self._request["airSwingUD"])
-    
+
     def set_vertical_swing(self, new_value: str | constants.AirSwingUD):
         """ Set vertical swing"""
         if isinstance(new_value, str):
             new_value = constants.AirSwingUD[new_value]
-        fan_auto = (constants.AirSwingAutoMode.AirSwingUD 
-                    if new_value == constants.AirSwingUD.Auto 
-                    else constants.AirSwingAutoMode.Disabled)
-        if self._device.parameters.horizontal_swing_mode == constants.AirSwingLR.Auto:
-            fan_auto = (constants.AirSwingAutoMode.Both 
-                        if new_value == constants.AirSwingUD.Auto 
-                        else constants.AirSwingAutoMode.AirSwingLR)
         self._ensure_powered_on()
-        if new_value != constants.AirSwingUD.Auto:
+        vertical_auto = new_value == constants.AirSwingUD.Auto
+        if not vertical_auto:
             self._request["airSwingUD"] = new_value.value
-        self._request["fanAutoMode"] = fan_auto.value
+        self._set_fan_auto_mode(self._is_auto(horizontal=True), vertical_auto)
         return self
-    
+
+    def _is_auto(self, horizontal: bool) -> bool:
+        """ Whether an axis is in auto, taking changes already made on this
+        builder into account before falling back to the device state. """
+        if "fanAutoMode" in self._request:
+            axis = constants.AirSwingAutoMode.AirSwingLR if horizontal else constants.AirSwingAutoMode.AirSwingUD
+            return self._request["fanAutoMode"] in (constants.AirSwingAutoMode.Both.value, axis.value)
+        if horizontal:
+            return self._device.parameters.horizontal_swing_mode == constants.AirSwingLR.Auto
+        return self._device.parameters.vertical_swing_mode == constants.AirSwingUD.Auto
+
+    def _set_fan_auto_mode(self, horizontal_auto: bool, vertical_auto: bool) -> None:
+        if horizontal_auto and vertical_auto:
+            fan_auto = constants.AirSwingAutoMode.Both
+        elif horizontal_auto:
+            fan_auto = constants.AirSwingAutoMode.AirSwingLR
+        elif vertical_auto:
+            fan_auto = constants.AirSwingAutoMode.AirSwingUD
+        else:
+            fan_auto = constants.AirSwingAutoMode.Disabled
+        self._request["fanAutoMode"] = fan_auto.value
+
     @property
     def nanoe_mode(self) -> constants.NanoeMode | None:
-        return constants.NanoeMode(self._request["nanoeMode"]) if "nanoe" in self._request else None
+        return constants.NanoeMode(self._request["nanoe"]) if "nanoe" in self._request else None
     
     def set_nanoe_mode(self, new_value: str | constants.NanoeMode):
         """ Set Nanoe mode"""
@@ -173,7 +206,18 @@ class ChangeRequestBuilder:
         return self
     
     @property
-    def power_mode(self) -> constants.Power | None:
+    def fireplace_mode(self) -> constants.FireplaceMode | None:
+        return constants.FireplaceMode(self._request["fireplace"]) if "fireplace" in self._request else None
+
+    def set_fireplace_mode(self, new_value: str | constants.FireplaceMode):
+        """ Set fireplace mode. The app only offers it in Heat mode. """
+        if isinstance(new_value, str):
+            new_value = constants.FireplaceMode[new_value]
+        self._request["fireplace"] = new_value.value
+        return self
+
+    @property
+    def power_mode(self)-> constants.Power | None:
         return constants.Power(self._request["operate"]) if "operate" in self._request else None
     
     def set_power_mode(self, new_value: str | constants.Power):
@@ -188,10 +232,20 @@ class ChangeRequestBuilder:
         return constants.IAutoXMode(self._request["iAuto"]) if "iAuto" in self._request else None
     
     def set_iautox_mode(self, new_value: str  | constants.IAutoXMode):
-        """ Set IAutoX mode"""
+        """ Set IAutoX mode
+
+        Turning it on switches to Auto with fan speed Auto and eco mode Auto,
+        as the app does. Turning it off switches to Cool, unless a mode has
+        already been set on this builder.
+        """
         if isinstance(new_value, str):
             new_value = constants.IAutoXMode[new_value]
-        self.set_hvac_mode(constants.OperationMode.Auto if new_value == constants.IAutoXMode.On else constants.OperationMode.Cool)
+        if new_value == constants.IAutoXMode.On:
+            self.set_hvac_mode(constants.OperationMode.Auto)
+            self._request.setdefault("fanSpeed", constants.FanSpeed.Auto.value)
+            self._request.setdefault("ecoMode", constants.EcoMode.Auto.value)
+        elif "operationMode" not in self._request:
+            self.set_hvac_mode(constants.OperationMode.Cool)
         self._request["iAuto"] = new_value.value
         return self
     
@@ -225,6 +279,9 @@ class ChangeRequestBuilder:
     def _ensure_powered_on(self) -> None:
         """ Ensure that the device is powered on, unless auto_power_on is disabled """
         if not self._auto_power_on:
+            return
+        # Respect an explicit set_power_mode() on this builder
+        if "operate" in self._request:
             return
         self._force_powered_on()
 
